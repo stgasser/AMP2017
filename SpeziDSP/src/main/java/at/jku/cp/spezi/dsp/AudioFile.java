@@ -63,7 +63,7 @@ public class AudioFile {
 
 	public AudioFile(String fileName, int fftSize, int hopSize, int windowFunction) {
 		try {
-			System.out.println("Reading and preprocessing audiofile " + fileName);
+			//System.out.println("Reading and preprocessing audiofile " + fileName);
 			if (!isPowerOfTwo(fftSize)) {
 				throw new IllegalArgumentException("fftSize must be a power of two");
 			}

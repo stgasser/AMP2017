@@ -19,27 +19,40 @@ import java.util.stream.Collectors;
  */
 public class Beta implements Processor {
 
-    private static final boolean PLOT = false;
+    private static final boolean PLOT = true;
 
     /*******************************************************************************
      * 								Magic Numbers                                  *
      *******************************************************************************/
+    //TODO Random Search for Parameters
+    private static final int HOPSIZE = 512;
+    private static final int FFTSIZE = 2 * HOPSIZE;           // For Reasons
 
-    private static final int MAXFILTER_TIME_WINDOWSIZE = 1;    //3
-    private static final int MAXFILTER_FREQ_WINDOWSIZE = 5;   //11
+    public static int MAXFILTER_TIME_WINDOWSIZE = 3;    //3
+    public static int MAXFILTER_FREQ_WINDOWSIZE = 1;   //2
 
-    private static final double PEAK_PICKING_THRESHOULD = 0.1;  //0.3
-    private static final double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT = -0.2; // 0.5
-    private static final int PEAK_PICKING_MEAN_WINDOWSIZE = 11;  //7
-    private static final int PEAK_PICKING_MAX_WINDOWSIZE = 7;   //4
-    private static final double PEAK_PICKING_MAX_WINDOWSIZE_TS = 0.6;   //4
-    private static final int PEAK_PICKING_LOCAL_MAX_WINDOWSIZE = 4;   //4
-    private static final int PEAK_PICKING_POST_ONSET_IGNORE = 3;//7
+    public static double lambda = 1.0;   //49
+    public static double PPTS = 1.0;    //0.87
+
+    public static int w1, w2, w3, w4, w5;// 1 5 14 7 16
+
+    public static int PEAK_PICKING_MEDIAN = 3;
+    public static int PEAK_PICKING_LOCAL_MAX = 3;
+    public static int PEAK_PICKING_AVG_MAX = 30;
+
+
+    /*public static double PEAK_PICKING_THRESHOULD = 0.3;  //0.3
+    public static double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT = 0.5; // 0.5
+    public static int PEAK_PICKING_MEAN_WINDOWSIZE = 7;  //7
+    public static int PEAK_PICKING_MAX_WINDOWSIZE = 5;   //4
+    public static double PEAK_PICKING_MAX_WINDOWSIZE_TS = 0.0;
+    public static int PEAK_PICKING_LOCAL_MAX_WINDOWSIZE = 6;   //4
+    public static int PEAK_PICKING_POST_ONSET_IGNORE = 7;     //7
 
     private static final double PEAK_PICKING_THRESHOULD_REL = 1.3; //0.3
     private static final double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT_REL = -0.7; // 0.5
     private static final int PEAK_PICKING_POST_ONSET_IGNORE_REL = 11;//7
-
+       */
     private String filename;
 
     private AudioFile audioFile;
@@ -62,7 +75,7 @@ public class Beta implements Processor {
     }
 
     public void process(String filename) {
-        System.out.println("Initializing Processor '" + Beta.class.getName() + "'...");
+        //System.out.println("Initializing Processor '" + Beta.class.getName() + "'...");
         onsets = new ArrayList<Double>();
         beats = new ArrayList<Double>();
         this.filename = filename;
@@ -74,13 +87,13 @@ public class Beta implements Processor {
 
         // if you would like to work with multiple DFT resolutions, you would
         // simply create multiple AudioFile objects with different parameters
-        System.out.println("Computing STFT ...");
+        //System.out.println("Computing STFT ...");
         this.audioFile = new AudioFile(filename, 2048, 1024);
 
-        System.out.println("Running Analysis...");
+        //System.out.println("Running Analysis...");
         //onsetDetection();
         onsetDetection1();
-        System.out.println(onsets.size());
+        //System.out.println(onsets.size());
         beatDetection();
         tempoEstimation();
     }
@@ -155,10 +168,15 @@ public class Beta implements Processor {
     }
 
     private void onsetDetection1() {
+
+        AudioFile audioFile = new AudioFile(filename, FFTSIZE, HOPSIZE);
+
         double sampleTime = 1d / audioFile.getSampleRate();
 
         List<Frame> frames = audioFile.getFrames();
-
+        SpectralTransformator.sampleRate = audioFile.getSampleRate();
+        SpectralTransformator.fftSize = FFTSIZE;
+        SpectralTransformator.l = lambda;
         List<double[]> magdiff = new ArrayList<>(frames.size());
         List<double[]> mel = frames.stream()
                 .map(frame -> frame.magnitudes)
@@ -173,6 +191,7 @@ public class Beta implements Processor {
             double[] tmp = new double[mel.get(i).length];
             for (int j = 0; j < tmp.length; j++) {
                 tmp[j] = mel.get(i + 1)[j] - (mel.get(i)[j] - magdiff.get(i)[j]);
+                //tmp[j] = mel.get(i)[j];// - (mel.get(i)[j] - magdiff.get(i)[j]);
             }
             magdiff.add(tmp);
         }
@@ -201,7 +220,12 @@ public class Beta implements Processor {
         for (int i = 0; i < spec.length - 1; i++) {
             double[] tmp = spec[i];
             for (int j = 0; j < tmp.length; j++) {
-                tmp[j] = Math.sqrt(Math.abs(tmp[j] * tmp[j] - spec[i + 1][j] * spec[i + 1][j]));
+                //tmp[j] = Math.sqrt(Math.abs(tmp[j] * tmp[j] - spec[i + 1][j] * spec[i + 1][j]));
+                //tmp[j] = H(spec[i + 1][j] - tmp[j]);
+                if(tmp[j]>0.01)
+                    tmp[j] = spec[i+1][j]/tmp[j];
+                else
+                    tmp[j] = spec[i+1][j];
             }
             magdiff2.add(tmp);
         }
@@ -230,9 +254,10 @@ public class Beta implements Processor {
                 })).collect(Collectors.toList());
         double[][] data = new double[2][magdiff2.size()];
         for (int i = 0; i < magdiff2.size(); i++) {
-            data[0][i] = i * sampleTime * 1024;
-            data[1][i] = (myList.get(i)) / max;
+            data[0][i] = i * sampleTime * HOPSIZE;
+            data[1][i] = (myList.get(i));/// max;
         }
+        /*
         int lastOnset = 0;
         for (int i = 0; i < data[0].length; i++) {
             double mean = 0, windowmax = Double.NEGATIVE_INFINITY;
@@ -250,7 +275,7 @@ public class Beta implements Processor {
             mean = mean / datacnt;
             if (data[1][i] >= windowmax*PEAK_PICKING_MAX_WINDOWSIZE_TS) {
                 if (/*data[1][i] / mean > PEAK_PICKING_THRESHOULD_REL * Math.max((lastOnset + PEAK_PICKING_POST_ONSET_IGNORE_REL - i) / PEAK_PICKING_POST_ONSET_IGNORE_REL, -PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT_REL) ||*/
-                        data[1][i] > mean + PEAK_PICKING_THRESHOULD * Math.max((lastOnset + PEAK_PICKING_POST_ONSET_IGNORE - i) / PEAK_PICKING_POST_ONSET_IGNORE, -PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT)) {
+                        /*data[1][i] > mean + PEAK_PICKING_THRESHOULD * Math.max((lastOnset + PEAK_PICKING_POST_ONSET_IGNORE - i) / PEAK_PICKING_POST_ONSET_IGNORE, -PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT)) {
                     boolean isMaxima = true;
                     for (int j = 0; j < PEAK_PICKING_LOCAL_MAX_WINDOWSIZE; j++) {
                         int idx = j + i - PEAK_PICKING_LOCAL_MAX_WINDOWSIZE / 2;
@@ -264,6 +289,57 @@ public class Beta implements Processor {
                     //i += PEAK_PICKING_POST_ONSET_IGNORE;
                 }
             }
+        }*/
+        // Peak picking
+        /*double[] newvals = new double[data[1].length];
+        for (int i = 0; i < data[1].length; i++) {
+            double[] arr = Arrays.copyOfRange(data[1], Math.max(i - PEAK_PICKING_MEDIAN, 0), Math.min(i + PEAK_PICKING_MEDIAN, data[1].length - 1));
+            Arrays.sort(arr);
+            newvals[i] = data[1][i] - arr[(Math.min(i + 3, data[1].length - 1) - Math.max(i - 3, 0)) / 2];
+            if (newvals[i] < 0) newvals[i] = 0;
+        }
+        data[1] = newvals;
+        newvals = new double[data[1].length];
+        for (int i = 0; i < data[1].length; i++) {
+            double[] arr = Arrays.copyOfRange(data[1], Math.max(i - PEAK_PICKING_AVG_MAX, 0), Math.min(i + PEAK_PICKING_AVG_MAX, data[1].length - 1));
+            Arrays.sort(arr);
+            if (arr[arr.length - 1] == 0) newvals[i] = 0;
+            else newvals[i] = data[1][i] / arr[arr.length - 1];
+            //System.out.println(newvals[i]);
+        }
+
+        for (int i = 0; i < newvals.length; i++) {
+            boolean ismax = true;
+            for (int j = 1; i - j >= 0 && j < PEAK_PICKING_LOCAL_MAX && ismax; j++) {
+                if (newvals[i] < newvals[i - j]) ismax = false;
+            }
+            for (int j = 1; i + j < newvals.length && j < PEAK_PICKING_LOCAL_MAX && ismax; j++) {
+                if (newvals[i] < newvals[i + j]) ismax = false;
+            }
+            if (ismax && newvals[i] > PPTS) onsets.add(data[0][i]);
+        }*/
+        //Peak Picking v3
+        int lastonset = -w5;
+        for (int i = 0; i < data[1].length; i++) {
+            boolean ismax = true;
+            for (int j = 1; j < w1 && i - j >= 0; j++) {
+                if (data[1][i - j] > data[1][i]) ismax = false;
+            }
+            for (int j = 1; j < w2 && i + j < data[1].length; j++) {
+                if (data[1][i + j] > data[1][i]) ismax = false;
+            }
+            int datacnt = 0;
+            double sum = 0;
+            for (int j = 0; j < w3 && i - j >= 0; j++) {
+                datacnt++;
+                sum += data[1][i - j];
+            }
+            for (int j = 1; j < w4 && i + j < data[1].length; j++) {
+                datacnt++;
+                sum += data[1][i + j];
+            }
+            double mean = sum / datacnt;
+            if (ismax && i - lastonset >= w5 && data[1][i] >= mean + PPTS) onsets.add(data[0][i]);
         }
         // Maxfiltering
         /*for (int i = 0; i <= data[1].length - 5; i++) {
@@ -276,7 +352,7 @@ public class Beta implements Processor {
         if (PLOT) {
             Plot2DPanel panel = new Plot2DPanel();
             panel.addLinePlot("data", data[0], data[1]);
-
+            //panel.addLinePlot("data",data[0],newvals);
             JFrame frame = new JFrame(filename);
             frame.setContentPane(panel);
             frame.setSize(1000, 500);
@@ -290,7 +366,7 @@ public class Beta implements Processor {
      * ned to implement *at least* two different beat detection functions.
      */
     private void beatDetection() {
-        System.out.println("Starting Beat Detection (NOT IMPLEMENTED!) ...");
+        //System.out.println("Starting Beat Detection (NOT IMPLEMENTED!) ...");
     }
 
     /**
@@ -298,6 +374,10 @@ public class Beta implements Processor {
      * ned to implement *at least* two different tempo estimation functions.
      */
     private void tempoEstimation() {
-        System.out.println("Starting Tempo Estimation (NOT IMPLEMENTED!) ...");
+        //System.out.println("Starting Tempo Estimation (NOT IMPLEMENTED!) ...");
+    }
+
+    private double H(double d) {
+        return (d + Math.abs(d)) / 2.0;
     }
 }
