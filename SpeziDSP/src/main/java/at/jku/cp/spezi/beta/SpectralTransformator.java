@@ -6,12 +6,15 @@ package at.jku.cp.spezi.beta;
 public class SpectralTransformator {
 
 
-    static final int numBands = 60;
+    static int numBands = 40;
+    static float sampleRate = 44100;
+    static int fftSize = 2048;
+    static double l = 1.0;
 
     public static double[] toMel(double[] fftData) {
         double[] bandData = new double[numBands];
         int MinFreq = 0;
-        int MaxFreq = fftData.length - 1;
+        int MaxFreq = (fftData.length - 1) * Math.round(sampleRate / fftSize);
         int[] centerFreqs = new int[numBands + 2];
         double melMaxFreq = 2959 * Math.log(1 + MaxFreq / 700.0);
         double melMinFreq = 2959 * Math.log(1 + MinFreq / 700.0);
@@ -20,7 +23,7 @@ public class SpectralTransformator {
         centerFreqs[numBands + 1] = MaxFreq;
 
         for (int i = 0; i < numBands; i++) {
-            centerFreqs[i + 1] = Math.round((float) ((Math.exp((melMaxFreq - melMinFreq) / numBands * i / 2959) - 1) * 700));
+            centerFreqs[i + 1] = Math.round((float) ((Math.exp((melMaxFreq - melMinFreq) / numBands * i / 2959) - 1) * 700)*fftSize/sampleRate);
         }
 
         for (int bandIdx = 1; bandIdx < numBands; bandIdx++) {
@@ -38,6 +41,10 @@ public class SpectralTransformator {
                 magnitudeScale = centerFreqIdx - stopFreqIdx;
                 bandData[bandIdx] += fftData[i] * height * (i - stopFreqIdx) / magnitudeScale;
             }
+        }
+        //double l = 1.0;
+        for (int i = 0; i < bandData.length; i++) {
+            bandData[i] = Math.log(1 + l * bandData[i]);
         }
 
         return bandData;
