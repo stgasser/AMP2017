@@ -19,13 +19,14 @@ import java.util.stream.Collectors;
  */
 public class Beta implements Processor {
 
-    private static final boolean PLOT = true;
+    private static final boolean PLOT = false;
+    private static final boolean MIX = false;
 
     /*******************************************************************************
      * 								Magic Numbers                                  *
      *******************************************************************************/
     //TODO Random Search for Parameters
-    private static final int HOPSIZE = 512;
+    private static final int HOPSIZE = 1024;
     private static final int FFTSIZE = 2 * HOPSIZE;           // For Reasons
 
     public static int MAXFILTER_TIME_WINDOWSIZE = 3;    //3
@@ -41,33 +42,38 @@ public class Beta implements Processor {
     public static int PEAK_PICKING_AVG_MAX = 30;
 
 
-    /*public static double PEAK_PICKING_THRESHOULD = 0.3;  //0.3
+    public static double PEAK_PICKING_THRESHOULD = 0.3;  //0.3
     public static double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT = 0.5; // 0.5
     public static int PEAK_PICKING_MEAN_WINDOWSIZE = 7;  //7
-    public static int PEAK_PICKING_MAX_WINDOWSIZE = 5;   //4
+    //public static int PEAK_PICKING_MAX_WINDOWSIZE = 5;   //4
     public static double PEAK_PICKING_MAX_WINDOWSIZE_TS = 0.0;
     public static int PEAK_PICKING_LOCAL_MAX_WINDOWSIZE = 6;   //4
     public static int PEAK_PICKING_POST_ONSET_IGNORE = 7;     //7
 
-    private static final double PEAK_PICKING_THRESHOULD_REL = 1.3; //0.3
-    private static final double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT_REL = -0.7; // 0.5
-    private static final int PEAK_PICKING_POST_ONSET_IGNORE_REL = 11;//7
-       */
-    private static final int PP2_MEDIAN_WINDOWSIZE = 11;
-    private static final double PP2_MEDIAN_SCALING_FACTOR = 1.12;
-    private static final int PP2_LOCAL_WINDOWSIZE = 4;
-    private static final int PP2_POST_ONSET_IGNORE = 4;
+    //private static final double PEAK_PICKING_THRESHOULD_REL = 1.3; //0.3
+    //private static final double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT_REL = -0.7; // 0.5
+    //private static final int PEAK_PICKING_POST_ONSET_IGNORE_REL = 11;//7
+
+    private static final double PP2_HFC_WEIGHT = 0.2795;
+    private static final int PP2_MEDIAN_WINDOWSIZE = 11; // fft != hop: 9
+    private static final double PP2_MEDIAN_SCALING_FACTOR = 1.5350923217009074; // fft != hop: 1.38070923, MIX: 1.0769
+    private static final int PP2_LOCAL_WINDOWSIZE = 0; // fft != hop: 2
+    private static final int PP2_POST_ONSET_IGNORE = 5; // fft != hop: 4
+    private static final int PP2_FFTSIZE = 1024;
+    private static final int PP2_HOPSIZE = 1024;
+
+    public static double f3;
+    public static int f1, f2, f4, f5;
 
     private String filename;
-
-    private AudioFile audioFile;
 
     /**
      * this list contains the results of the onset detection step
      * <p>
      * (time is in seconds)
      */
-    private List<Double> onsets;
+    private List<Double> onsets1;
+    private List<Double> onsets2;
 
     /**
      * this list contain the results of the beat detection step
@@ -80,32 +86,35 @@ public class Beta implements Processor {
     }
 
     public void process(String filename) {
-        //System.out.println("Initializing Processor '" + Beta.class.getName() + "'...");
-        onsets = new ArrayList<Double>();
+        if (PLOT) {
+            System.out.println("Initializing Processor '" + Beta.class.getName() + "'...");
+        }
+
+        onsets1 = new ArrayList<Double>();
+        onsets2 = new ArrayList<Double>();
         beats = new ArrayList<Double>();
         this.filename = filename;
-        // an AudioFile object is created with the following parameters
-        // AudioFile(WAVFILENAME, fftSize, hopSize, OPTIONAL: window function)
-        // sizes are in samples
 
-        // the WAV files you were provided with are all sampled at 44100 Hz
+        if (PLOT) {
+            System.out.println("Running Analysis...");
+        }
 
-        // if you would like to work with multiple DFT resolutions, you would
-        // simply create multiple AudioFile objects with different parameters
-        //System.out.println("Computing STFT ...");
-        this.audioFile = new AudioFile(filename, 2048, 1024);
-
-        //System.out.println("Running Analysis...");
-        //onsetDetection();
         onsetDetection1();
+        if (PLOT) {
+            System.out.println("Onset detection 1: " + onsets1.size());
+        }
+
         onsetDetection2();
-        System.out.println(onsets.size());
+        if (PLOT) {
+            System.out.println("Onset detection 2: " + onsets2.size());
+        }
+
         beatDetection();
         tempoEstimation();
     }
 
     public List<Double> getOnsets() {
-        return onsets;
+        return onsets2;
     }
 
     public List<Double> getBeats() {
@@ -119,60 +128,8 @@ public class Beta implements Processor {
     }
 
     /**
-     * this is a 'Signal Envelope' implementation
-     * <p>
-     * TODO: you have to implement *at least* 2 more different onset detection
-     * functions have a look at the class 'Frame' - it contains the magnitudes,
-     * the phases, and more which you can use to implement your detection
-     * function
+     * SF
      */
-    private void onsetDetection() {
-        onsetDetection1();
-        System.out.println("Starting Onset Detection ...");
-
-        // this is the time difference between two consecutive samples
-        double sampleTimeInSeconds = 1d / audioFile.getSampleRate();
-
-        // this list stores the audio samples from the WAV file
-        List<Double> samples = audioFile.getSamples();
-
-        // if we wanted the list of STFT frames, we'd call
-        // List<Frame> frames = audioFile.getFrames();
-
-        // average samples in a window extending 400 samples into the past and
-        // the future
-        // 'x' is the current sample
-        // |..............x..............|
-        int w = 400;
-
-        // where did this threshold come from? for the purpose of this example,
-        // we pulled it out of our hat. for the competition you should
-        // definitely
-        // try to tune any such 'magic numbers' ...
-        double threshold = 0.35;
-
-        // - run over all samples from the signal
-        // - compute the average over the energy in a window
-        // - report everything larger than that average plus a threshold
-        for (int i = w; i < samples.size() - w; i++) {
-            double mean = 0d;
-            for (int j = -w; j < w; j++) {
-                mean = mean + Math.abs(samples.get(i + j));
-            }
-            mean = mean / (2 * w + 1);
-
-            // if the current sample-value is greater than
-            //
-            // threshold + mean(window)
-            //
-            // we report an onset ...
-
-            if (threshold + mean < samples.get(i)) {
-                onsets.add(i * sampleTimeInSeconds);
-            }
-        }
-    }
-
     private void onsetDetection1() {
 
         AudioFile audioFile = new AudioFile(filename, FFTSIZE, HOPSIZE);
@@ -345,7 +302,7 @@ public class Beta implements Processor {
                 sum += data[1][i + j];
             }
             double mean = sum / datacnt;
-            if (ismax && i - lastonset >= w5 && data[1][i] >= mean + PPTS) onsets.add(data[0][i]);
+            if (ismax && i - lastonset >= w5 && data[1][i] >= mean + PPTS) onsets1.add(data[0][i]);
         }
         // Maxfiltering
         /*for (int i = 0; i <= data[1].length - 5; i++) {
@@ -368,9 +325,10 @@ public class Beta implements Processor {
     }
 
     /**
-     * HFC - High Frequency Content
+     * HFC + WPD => fmeasure = 77.16 %
      */
     private void onsetDetection2() {
+        AudioFile audioFile = new AudioFile(filename, PP2_FFTSIZE, PP2_HOPSIZE);
         List<Frame> frames = audioFile.getFrames();
 
         /**
@@ -411,33 +369,42 @@ public class Beta implements Processor {
             }
         }
 
-        performPeakPickingFronz(hfc);
-        performPeakPickingFronz(wpd);
-
-        /**
-         * eliminate double onsets
-         */
-        onsets = onsets.stream().sorted().collect(Collectors.toList());
-        List<Double> tmpOnsets = new ArrayList<>();
-        double sampleTime = 1d / audioFile.getSampleRate();
-        double ignoreOnsetTime = sampleTime * PEAK_PICKING_POST_ONSET_IGNORE;
-        for (int i = 0; i < onsets.size(); i++) {
-            double first = onsets.get(i);
-
-            while (i < onsets.size() && Math.abs(onsets.get(i) - first) <= 2 * ignoreOnsetTime) {
-                i++;
+        if (MIX) {
+            double wHfc = PP2_HFC_WEIGHT;
+            double[] all = new double[audioFile.getNrOfFrames()];
+            for (int i = 0; i < audioFile.getNrOfFrames(); i++) {
+                all[i] = wHfc * hfc[i] + (1 - wHfc) * wpd[i];
             }
-            i--;
+            performPeakPickingFronz(all, audioFile);
+        } else {
+            performPeakPickingFronz(hfc, audioFile);
+            performPeakPickingFronz(wpd, audioFile);
 
-            double second = onsets.get(i);
-            double mean = (first + second) / 2;
+            /**
+             * eliminate double onsets
+             */
+            onsets2 = onsets2.stream().sorted().collect(Collectors.toList());
+            List<Double> tmpOnsets = new ArrayList<>();
+            double sampleTime = 1d / audioFile.getSampleRate();
+            double ignoreOnsetTime = sampleTime * PP2_POST_ONSET_IGNORE;
+            for (int i = 0; i < onsets2.size(); i++) {
+                double first = onsets2.get(i);
 
-            tmpOnsets.add(mean);
+                while (i < onsets2.size() && Math.abs(onsets2.get(i) - first) <= 2 * ignoreOnsetTime) {
+                    i++;
+                }
+                i--;
+
+                double second = onsets2.get(i);
+                double mean = (first + second) / 2;
+
+                tmpOnsets.add(mean);
+            }
+            onsets2 = tmpOnsets;
         }
-        onsets = tmpOnsets;
     }
 
-    private void performPeakPickingFronz(double[] detection) {
+    private void performPeakPickingFronz(double[] detection, AudioFile audioFile) {
         double max = Arrays.stream(detection).max().getAsDouble();
 
         /**
@@ -491,7 +458,7 @@ public class Beta implements Processor {
                         }
                     }
                     if (isMaxima) {
-                        onsets.add(data[0][i]);
+                        onsets2.add(data[0][i]);
                         lastOnset = i;
                     }
                 }
@@ -525,7 +492,7 @@ public class Beta implements Processor {
                                 if (data[1][idx] > data[1][i]) isMaxima = false;
                         }
                         if (isMaxima) {
-                            onsets.add(data[0][i]);
+                            onsets2.add(data[0][i]);
                             lastOnset = i;
                         }
                     }
