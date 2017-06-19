@@ -114,7 +114,7 @@ public class Beta implements Processor {
     }
 
     public List<Double> getOnsets() {
-        return onsets2;
+        return onsets1;
     }
 
     public List<Double> getBeats() {
@@ -131,7 +131,6 @@ public class Beta implements Processor {
      * SF
      */
     private void onsetDetection1() {
-
         AudioFile audioFile = new AudioFile(filename, FFTSIZE, HOPSIZE);
 
         double sampleTime = 1d / audioFile.getSampleRate();
@@ -525,16 +524,14 @@ public class Beta implements Processor {
     }
 
     /**
-     * TODO: we do not provide any beat detection example implementation. you
-     * ned to implement *at least* two different beat detection functions.
+     * Beat detection
      */
     private void beatDetection() {
         //System.out.println("Starting Beat Detection (NOT IMPLEMENTED!) ...");
     }
 
     /**
-     * TODO: we do not provide any beat detection example implementation. you
-     * ned to implement *at least* two different tempo estimation functions.
+     * Tempo estimation
      */
     private void tempoEstimation() {
         //System.out.println("Starting Tempo Estimation (NOT IMPLEMENTED!) ...");
