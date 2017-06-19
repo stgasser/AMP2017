@@ -54,6 +54,7 @@ public class Beta implements Processor {
     //private static final double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT_REL = -0.7; // 0.5
     //private static final int PEAK_PICKING_POST_ONSET_IGNORE_REL = 11;//7
 
+    // Onset Detection 2
     private static final double PP2_HFC_WEIGHT = 0.2795;
     private static final int PP2_MEDIAN_WINDOWSIZE = 11; // fft != hop: 9
     private static final double PP2_MEDIAN_SCALING_FACTOR = 1.5350923217009074; // fft != hop: 1.38070923, MIX: 1.0769
@@ -62,10 +63,17 @@ public class Beta implements Processor {
     private static final int PP2_FFTSIZE = 1024;
     private static final int PP2_HOPSIZE = 1024;
 
+    // Beat detection
+    private static final int BT_TEMPO_RANGE_LOW = 60;
+    private static final int BT_TEMPO_RANGE_HIGH = 200;
+    private static final int BT_LOCAL_WINDOWSIZE = 11;
+    private static final int BT_BEAT_WINDOW_FACTOR = 4;    // hoptime * factor = distance to beat in both directions
+
     public static double f3;
     public static int f1, f2, f4, f5;
 
     private String filename;
+    private double sampleTime;
 
     /**
      * this list contains the results of the onset detection step
@@ -74,6 +82,7 @@ public class Beta implements Processor {
      */
     private List<Double> onsets1;
     private List<Double> onsets2;
+    private double[][] onsetDetectionFunction;
 
     /**
      * this list contain the results of the beat detection step
@@ -81,6 +90,8 @@ public class Beta implements Processor {
      * (beat times in seconds)
      */
     private List<Double> beats;
+
+    private List<Double> tempo;
 
     public Beta() {
     }
@@ -93,6 +104,7 @@ public class Beta implements Processor {
         onsets1 = new ArrayList<Double>();
         onsets2 = new ArrayList<Double>();
         beats = new ArrayList<Double>();
+        tempo = new ArrayList<Double>();
         this.filename = filename;
 
         if (PLOT) {
@@ -122,18 +134,17 @@ public class Beta implements Processor {
     }
 
     public List<Double> getTempo() {
-        List<Double> tempo = new ArrayList<>();
-        tempo.add(150d);
         return tempo;
     }
 
     /**
-     * SF
+     * SF => fmeasure = 89.589 %
      */
     private void onsetDetection1() {
         AudioFile audioFile = new AudioFile(filename, FFTSIZE, HOPSIZE);
 
         double sampleTime = 1d / audioFile.getSampleRate();
+        this.sampleTime = sampleTime;
 
         List<Frame> frames = audioFile.getFrames();
         SpectralTransformator.sampleRate = audioFile.getSampleRate();
@@ -320,6 +331,10 @@ public class Beta implements Processor {
             }
             data[1][i] = Math.max(Math.max(tmp[0], tmp[1]), tmp[2]);
         }*/
+
+        // save onset detection function for beat detection
+        onsetDetectionFunction = data;
+
         if (PLOT) {
             Plot2DPanel panel = new Plot2DPanel();
             panel.addLinePlot("data", data[0], data[1]);
@@ -524,10 +539,126 @@ public class Beta implements Processor {
     }
 
     /**
-     * Beat detection
+     * Beat detection => fmeasure = 54.723 %
      */
     private void beatDetection() {
-        //System.out.println("Starting Beat Detection (NOT IMPLEMENTED!) ...");
+        // calculate the range of tau values dependeing on tempo range
+        double hopTime = HOPSIZE * sampleTime;
+        int lowerBound = -1;
+        int upperBound = -1;
+        for (int i = 1; i < onsetDetectionFunction[0].length; i++) {
+            if (upperBound < 0 && (60.0 / (i * hopTime)) < BT_TEMPO_RANGE_LOW) {
+                upperBound = i;
+            }
+            if (lowerBound < 0 && (60.0 / (i * hopTime)) <= BT_TEMPO_RANGE_HIGH) {
+                lowerBound = i;
+            }
+        }
+        int tauSize = upperBound - lowerBound;
+
+        // calculate autocorrelation
+        double[][] autocorrelation = new double[2][tauSize];
+        for (int i = lowerBound; i < upperBound; i++) {
+            int index = i - lowerBound;
+            autocorrelation[0][index] = i * hopTime;
+
+            double sum = 0;
+            for (int t = 0; t < onsetDetectionFunction[1].length; t++) {
+                if ((t+i) < 0 || (t+i) >= onsetDetectionFunction[1].length) {
+                    continue;
+                }
+
+                sum += (onsetDetectionFunction[1][t+i] * onsetDetectionFunction[1][t]);
+            }
+
+            autocorrelation[1][index] = sum;
+        }
+
+        // perform peak picking
+        double maximum = 0;
+        int maxIdx = -1;
+        for (int i = 0; i < autocorrelation[0].length; i++) {
+            double localMax = 0;
+            int lmaxIdx = -1;
+            for (int j = -BT_LOCAL_WINDOWSIZE/2; j <= BT_LOCAL_WINDOWSIZE/2; j++) {
+                if ((i+j) < 0 || (i+j) >= autocorrelation[0].length) {
+                    continue;
+                }
+
+                double value = autocorrelation[1][i+j];
+                if (localMax < value) {
+                    localMax = value;
+                    lmaxIdx = i+j;
+                }
+            }
+            if (i == lmaxIdx && localMax > maximum) {
+                maximum = localMax;
+                maxIdx = lmaxIdx;
+            }
+        }
+
+        // calculate beats
+        double beatTime = autocorrelation[0][maxIdx];
+        final double beatWindow = BT_BEAT_WINDOW_FACTOR * hopTime;
+        List<Double> onsets = getOnsets();
+
+        // @TODO currently we suggest, that the first onset, is also the first beat.
+        double estimatedBeatTime = onsets.get(0);
+        beats.add(estimatedBeatTime);
+
+        while (estimatedBeatTime <= onsets.get(onsets.size()-1)) {
+            estimatedBeatTime += beatTime;
+
+            // find all onsets in range of the current estimated beat
+            List<Double> temp = new ArrayList<>();
+            for (int i = 0; i < onsets.size(); i++) {
+                double onset = onsets.get(i);
+                if (onset < estimatedBeatTime - beatWindow) {
+                    continue;
+                }
+                if (onset > estimatedBeatTime + beatWindow) {
+                    break;
+                }
+                temp.add(onset);
+            }
+
+            double bestBeatTime = 0;
+            if (temp.isEmpty()) {
+                // no onset in range -> just take estimation
+                bestBeatTime = estimatedBeatTime;
+            } else {
+                // at least 1 onset in range -> take nearest
+                double bestTimeDiff = Double.MAX_VALUE;
+                for (double onset : temp) {
+                    double diff = Math.abs(estimatedBeatTime - onset);
+                    if (diff < bestTimeDiff) {
+                        bestTimeDiff = diff;
+                        bestBeatTime = onset;
+                    }
+                }
+                // update the estimation to the current onset
+                estimatedBeatTime = bestBeatTime;
+            }
+
+            beats.add(bestBeatTime);
+        }
+
+
+
+
+
+        // @TODO = Tempo estimation!!!
+        tempo.add(60 / beatTime);
+
+/*
+        Plot2DPanel panel = new Plot2DPanel();
+        panel.addLinePlot("autocorrelation", autocorrelation[0], autocorrelation[1]);
+        JFrame frame = new JFrame(filename);
+        frame.setContentPane(panel);
+        frame.setSize(1000, 500);
+        frame.setVisible(true);
+        frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+*/
     }
 
     /**

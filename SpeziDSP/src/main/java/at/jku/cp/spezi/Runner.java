@@ -34,7 +34,7 @@ public class Runner {
     public static String BEATS = ".beats";
     public static String TEMPO = ".tempo";
 
-    private static String[] types = {ONSETS};//, BEATS, TEMPO};
+    private static String[] types = {ONSETS, BEATS, TEMPO};
     private static double[] tolerances = {0.05d, 0.07d, 4d};
 
     private static String AUDIO = ".wav";
@@ -487,10 +487,10 @@ public class Runner {
         Utils.writeDataToFile(onsets, processor.getOnsets());
 
         //System.out.println("Outputting Beat Times to " + beats);
-        //Utils.writeDataToFile(beats, processor.getBeats());
+        Utils.writeDataToFile(beats, processor.getBeats());
 
         //System.out.println("Outputting Tempo to " + tempo);
-        //Utils.writeDataToFile(tempo, processor.getTempo());
+        Utils.writeDataToFile(tempo, processor.getTempo());
     }
 
     private static void evalForFile(String filename) {
