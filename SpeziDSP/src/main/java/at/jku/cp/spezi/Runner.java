@@ -80,27 +80,35 @@ public class Runner {
             processorName = "example.TooSimple";
         }
         int tries = 0;
-        int b_mf_tws = 0, b_mffws = 0, b_median = 0, b_avgmax = 0, b_max = 0;
-        double b_ppts = 0, b_la = 0;
+        int b_mf_tws = 4, b_mffws = 1, b_median = 0, b_avgmax = 0, b_max = 0;
+        int b_w1 = 4, b_w2 = 4, b_w3 = 19, b_w4 = 11, b_w5 = 15;
+        double b_ppts = 1.097764218995879, b_la = 47;
         double fmmax = 0;
         Random rand = new Random(System.currentTimeMillis());
         while (tries < 1000) {
             tries++;
             if (tries % 10 == 0)
                 System.out.println("#" + tries);
-            int mf_tws = 3,//rand.nextInt(3) + 1,
-                    mffws = 2,//rand.nextInt(5) + 1,
-                    w1 = rand.nextInt(15)+1,
-                    w2 = rand.nextInt(15)+1,
-                    w3 = rand.nextInt(15)+5,
-                    w4 = rand.nextInt(15)+5,
-                    w5 = rand.nextInt(15)+5;
+            int mf_tws = b_mf_tws + rand.nextInt(3) - 1,
+                    mffws = b_mffws + rand.nextInt(3) - 1,
+                    w1 = b_w1 + rand.nextInt(5) - 2,
+                    w2 = b_w2 + rand.nextInt(5) - 2,
+                    w3 = b_w3 + rand.nextInt(5) - 2,
+                    w4 = b_w4 + rand.nextInt(5) - 2,
+                    w5 = b_w5 + rand.nextInt(5) - 2;
                     /*localmax = rand.nextInt(10) + 1,
                     avgmax = rand.nextInt(10) + 1,
                     median = rand.nextInt(30) + 1;*/
 
-            double la = Math.round(rand.nextDouble() * 10) + 40,
-                    ppts = Math.round(rand.nextDouble()*50)/100.0+0.5;
+            double la = b_la + rand.nextDouble() * 11 - 5,
+                    ppts = b_ppts + rand.nextDouble() * b_ppts - b_ppts / 2;
+            if (mf_tws < 1) mf_tws = 1;
+            if (mffws < 1) mffws = 1;
+            if (w1 < 1) w1 = 1;
+            if (w2 < 1) w2 = 1;
+            if (w3 < 1) w3 = 1;
+            if (w4 < 1) w4 = 1;
+            if (w5 < 1) w5 = 1;
 
             Beta.MAXFILTER_FREQ_WINDOWSIZE = mffws;
             Beta.MAXFILTER_TIME_WINDOWSIZE = mf_tws;
@@ -174,6 +182,11 @@ public class Runner {
                         //b_avgmax = avgmax;
                         //b_max = localmax;
                         b_ppts = ppts;
+                        b_w1 = w1;
+                        b_w2 = w2;
+                        b_w3 = w3;
+                        b_w4 = w4;
+                        b_w5 = w5;
                         //b_median = median;
                         System.out.println("new best FMeasure: " + fmeasure);
                         System.out.println(b_mf_tws);
@@ -199,7 +212,7 @@ public class Runner {
                             "recall " + recall,
                             "fmeasure " + fmeasure,
                             "error " + error);
-                    lines.forEach(System.out::println);
+                    //lines.forEach(System.out::println);
                     //Utils.writeToFile(summaryfilename, lines);
                 }
             }
