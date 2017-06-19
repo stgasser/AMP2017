@@ -26,16 +26,16 @@ public class Beta implements Processor {
      * 								Magic Numbers                                  *
      *******************************************************************************/
     //TODO Random Search for Parameters
-    private static final int HOPSIZE = 1024;
+    private static final int HOPSIZE = 512;
     private static final int FFTSIZE = 2 * HOPSIZE;           // For Reasons
 
-    public static int MAXFILTER_TIME_WINDOWSIZE = 3;    //3
-    public static int MAXFILTER_FREQ_WINDOWSIZE = 1;   //2
+    public static int MAXFILTER_TIME_WINDOWSIZE = 4;        //4
+    public static int MAXFILTER_FREQ_WINDOWSIZE = 1;        //1
 
-    public static double lambda = 1.0;   //49
-    public static double PPTS = 1.0;    //0.87
+    public static double lambda = 52.610014112036495;                      //52.610014112036495
+    public static double PPTS = 1.32846349236593;                        //1.32846349236593
 
-    public static int w1, w2, w3, w4, w5;// 1 5 14 7 16
+    public static int w1 = 1, w2 = 2, w3 = 17, w4 = 7, w5 = 18;                   // 1 2 17 7 18
 
     public static int PEAK_PICKING_MEDIAN = 3;
     public static int PEAK_PICKING_LOCAL_MAX = 3;
@@ -142,18 +142,27 @@ public class Beta implements Processor {
         SpectralTransformator.l = lambda;
         List<double[]> magdiff = new ArrayList<>(frames.size());
         List<double[]> mel = frames.stream()
-                .map(frame -> frame.magnitudes)
+                .map(frame -> {
+                    double[] vals = new double[frame.magnitudes.length];
+                    for (int i = 0; i < vals.length; i++) {
+                        vals[i] = frame.magnitudes[i] ;//* Math.cos(frame.phases[i]);
+                        //vals[1][i] = frame.magnitudes[i] * Math.sin(frame.phases[i]);
+                    }
+                    return vals;
+                })
                 .map(SpectralTransformator::toMel)
                 .collect(Collectors.toList());
         double[] first = new double[mel.get(0).length];
         for (int i = 0; i < first.length; i++) {
             first[i] = mel.get(0)[i] / 4.0;
+            //first[1][i] = mel.get(0)[1][i] / 4.0;
         }
         magdiff.add(first);
         for (int i = 0; i < mel.size() - 1; i++) {
             double[] tmp = new double[mel.get(i).length];
             for (int j = 0; j < tmp.length; j++) {
                 tmp[j] = mel.get(i + 1)[j] - (mel.get(i)[j] - magdiff.get(i)[j]);
+                //tmp[1][j] = mel.get(i + 1)[1][j] - (mel.get(i)[1][j] - magdiff.get(i)[1][j]);
                 //tmp[j] = mel.get(i)[j];// - (mel.get(i)[j] - magdiff.get(i)[j]);
             }
             magdiff.add(tmp);
@@ -175,6 +184,7 @@ public class Beta implements Processor {
                     }
                 }
                 spec[i][j] = max;
+                //spec[i][1][j] = maxim;
             }
         }
 
@@ -184,11 +194,12 @@ public class Beta implements Processor {
             double[] tmp = spec[i];
             for (int j = 0; j < tmp.length; j++) {
                 //tmp[j] = Math.sqrt(Math.abs(tmp[j] * tmp[j] - spec[i + 1][j] * spec[i + 1][j]));
-                //tmp[j] = H(spec[i + 1][j] - tmp[j]);
-                if(tmp[j]>0.01)
+                tmp[j] = H(spec[i + 1][j] - tmp[j]);
+                //tmp[1][j] = H(spec[i + 1][1][j] - tmp[1][j]);
+                /*if(tmp[j]>0.01)
                     tmp[j] = spec[i+1][j]/tmp[j];
                 else
-                    tmp[j] = spec[i+1][j];
+                    tmp[j] = spec[i+1][j];*/
             }
             magdiff2.add(tmp);
         }
@@ -198,9 +209,8 @@ public class Beta implements Processor {
         List<Double> myList = magdiff2.stream()
                 .map((doubles -> {
                     double sum = 0;
-                    for (double d :
-                            doubles) {
-                        sum += d;
+                    for (int i = 0; i < doubles.length; i++) {
+                        sum += doubles[i];
                     }
                     return Math.abs(sum);
                 })).sorted(Double::compareTo)
@@ -209,9 +219,8 @@ public class Beta implements Processor {
         myList = magdiff2.stream()
                 .map((doubles -> {
                     double sum = 0;
-                    for (double d :
-                            doubles) {
-                        sum += d;
+                    for (int i = 0; i < doubles.length; i++) {
+                        sum += doubles[i];
                     }
                     return Math.abs(sum);
                 })).collect(Collectors.toList());

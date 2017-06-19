@@ -6,7 +6,7 @@ package at.jku.cp.spezi.beta;
 public class SpectralTransformator {
 
 
-    static int numBands = 40;
+    static int numBands = 50;
     static float sampleRate = 44100;
     static int fftSize = 2048;
     static double l = 1.0;
