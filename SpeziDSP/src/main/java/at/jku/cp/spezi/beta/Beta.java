@@ -6,9 +6,7 @@ import at.jku.cp.spezi.dsp.Processor;
 import org.math.plot.Plot2DPanel;
 
 import javax.swing.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -68,6 +66,7 @@ public class Beta implements Processor {
     private static final int BT_TEMPO_RANGE_HIGH = 200;
     private static final int BT_LOCAL_WINDOWSIZE = 11;
     private static final int BT_BEAT_WINDOW_FACTOR = 4;    // hoptime * factor = distance to beat in both directions
+    private static final double BT_OCTAVE_TOLERANCE = 0.1;
 
     public static double f3;
     public static int f1, f2, f4, f5;
@@ -577,6 +576,7 @@ public class Beta implements Processor {
         // perform peak picking
         double maximum = 0;
         int maxIdx = -1;
+        Map<Integer, Double> localMaxima = new HashMap<>();
         for (int i = 0; i < autocorrelation[0].length; i++) {
             double localMax = 0;
             int lmaxIdx = -1;
@@ -595,10 +595,32 @@ public class Beta implements Processor {
                 maximum = localMax;
                 maxIdx = lmaxIdx;
             }
+            if (i == lmaxIdx) {
+                // local maximum found
+                localMaxima.put(lmaxIdx, localMax);
+            }
+        }
+        double tempoEstimation = autocorrelation[0][maxIdx];
+
+        // pick the right local maximum
+        int size = localMaxima.size();
+        if (size <= 0) {
+            // PROBLEM
+            System.out.println("No beat estimation found!");
+            return;
+        }
+        double minLocalMaximum = tempoEstimation;
+        int minLocalMaxIdx = maxIdx;
+        for (int key : localMaxima.keySet()) {
+            double value = autocorrelation[0][key];
+            if (value < minLocalMaximum && isOctaveOf(value, tempoEstimation)) {
+                minLocalMaximum = value;
+                minLocalMaxIdx = key;
+            }
         }
 
         // calculate beats
-        double beatTime = autocorrelation[0][maxIdx];
+        double beatTime = autocorrelation[0][minLocalMaxIdx];
         final double beatWindow = BT_BEAT_WINDOW_FACTOR * hopTime;
         List<Double> onsets = getOnsets();
 
@@ -648,7 +670,7 @@ public class Beta implements Processor {
 
 
         // @TODO = Tempo estimation!!!
-        tempo.add(60 / beatTime);
+        tempo.add(60 / tempoEstimation);
 
 /*
         Plot2DPanel panel = new Plot2DPanel();
@@ -670,5 +692,20 @@ public class Beta implements Processor {
 
     private double H(double d) {
         return (d + Math.abs(d)) / 2.0;
+    }
+
+    private boolean isOctaveOf(double v1, double v2) {
+        double higher = Math.max(v1, v2);
+        double lower = Math.min(v1, v2);
+
+        do {
+            lower *= 2;
+            double diff = Math.abs(higher - lower);
+            if (diff <= higher * BT_OCTAVE_TOLERANCE) {
+                return true;
+            }
+        } while (lower < higher);
+
+        return false;
     }
 }
