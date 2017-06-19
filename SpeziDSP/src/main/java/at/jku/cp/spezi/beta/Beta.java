@@ -53,6 +53,11 @@ public class Beta implements Processor {
     private static final double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT_REL = -0.7; // 0.5
     private static final int PEAK_PICKING_POST_ONSET_IGNORE_REL = 11;//7
        */
+    private static final int PP2_MEDIAN_WINDOWSIZE = 11;
+    private static final double PP2_MEDIAN_SCALING_FACTOR = 1.12;
+    private static final int PP2_LOCAL_WINDOWSIZE = 4;
+    private static final int PP2_POST_ONSET_IGNORE = 4;
+
     private String filename;
 
     private AudioFile audioFile;
@@ -93,7 +98,8 @@ public class Beta implements Processor {
         //System.out.println("Running Analysis...");
         //onsetDetection();
         onsetDetection1();
-        //System.out.println(onsets.size());
+        onsetDetection2();
+        System.out.println(onsets.size());
         beatDetection();
         tempoEstimation();
     }
@@ -362,6 +368,187 @@ public class Beta implements Processor {
             Plot2DPanel panel = new Plot2DPanel();
             panel.addLinePlot("data", data[0], data[1]);
             //panel.addLinePlot("data",data[0],newvals);
+            JFrame frame = new JFrame(filename);
+            frame.setContentPane(panel);
+            frame.setSize(1000, 500);
+            frame.setVisible(true);
+            frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        }
+    }
+
+    /**
+     * HFC - High Frequency Content
+     */
+    private void onsetDetection2() {
+        List<Frame> frames = audioFile.getFrames();
+
+        /**
+         * calculate hfc values
+         */
+        double hfcMax = 0;
+        double[] hfc = new double[audioFile.getNrOfFrames()];
+        for (int i = 0; i < audioFile.getNrOfFrames(); i++) {
+            Frame frame = frames.get(i);
+            double d = 0;
+            for (int j = 0; j < frame.size; j++) {
+                d += (j + 1) * Math.pow(frame.magnitudes[j], 2);
+            }
+            hfc[i] = d / frame.size;
+
+            if (hfc[i] > hfcMax) {
+                hfcMax = hfc[i];
+            }
+        }
+
+        /**
+         * calculate wpd values
+         */
+        double wpdMax = 0;
+        double[] wpd = new double[audioFile.getNrOfFrames()];
+        for (int i = 0; i < audioFile.getNrOfFrames(); i++) {
+            Frame frame0 = frames.get(Math.min(i, audioFile.getNrOfFrames()));
+            Frame frame1 = frames.get(Math.max(i, 0));
+            Frame frame2 = frames.get(Math.max(i - 1, 0));
+            double d = 0;
+            for (int j = 0; j < frame1.size; j++) {
+                d += Math.abs(frame1.magnitudes[j] * (frame0.magnitudes[j] - 2 * frame1.magnitudes[j] + frame2.magnitudes[j]));
+            }
+            wpd[i] = d / frame1.size;
+
+            if (wpd[i] > wpdMax) {
+                wpdMax = wpd[i];
+            }
+        }
+
+        performPeakPickingFronz(hfc);
+        performPeakPickingFronz(wpd);
+
+        /**
+         * eliminate double onsets
+         */
+        onsets = onsets.stream().sorted().collect(Collectors.toList());
+        List<Double> tmpOnsets = new ArrayList<>();
+        double sampleTime = 1d / audioFile.getSampleRate();
+        double ignoreOnsetTime = sampleTime * PEAK_PICKING_POST_ONSET_IGNORE;
+        for (int i = 0; i < onsets.size(); i++) {
+            double first = onsets.get(i);
+
+            while (i < onsets.size() && Math.abs(onsets.get(i) - first) <= 2 * ignoreOnsetTime) {
+                i++;
+            }
+            i--;
+
+            double second = onsets.get(i);
+            double mean = (first + second) / 2;
+
+            tmpOnsets.add(mean);
+        }
+        onsets = tmpOnsets;
+    }
+
+    private void performPeakPickingFronz(double[] detection) {
+        double max = Arrays.stream(detection).max().getAsDouble();
+
+        /**
+         * map values to time values
+         */
+        double sampleTime = 1d / audioFile.getSampleRate();
+        double[][] data = new double[2][detection.length];
+        for (int i = 0; i < detection.length; i++) {
+            data[0][i] = i * sampleTime * 1024;
+            data[1][i] = detection[i] / max;
+        }
+
+        /**
+         * perform peak picking
+         */
+        int lastOnset = -PP2_POST_ONSET_IGNORE;
+        for (int i = 0; i < data[0].length; i++) {
+            if (true) {
+                if ((i - lastOnset) < PP2_POST_ONSET_IGNORE) {
+                    i = lastOnset + PP2_POST_ONSET_IGNORE - 1;
+                    continue;
+                }
+
+                double[] values = new double[PP2_MEDIAN_WINDOWSIZE];
+                for (int j = 0; j < PP2_MEDIAN_WINDOWSIZE; j++) {
+                    int index = i + j - (PP2_MEDIAN_WINDOWSIZE - 1) / 2;
+                    if (index < 0 || index >= data[0].length) {
+                        break;
+                    }
+
+                    values[j] = data[1][index];
+                }
+
+                values = Arrays.stream(values).sorted().toArray();
+                double median;
+                if (PP2_MEDIAN_WINDOWSIZE % 2 == 0) {
+                    median = (values[PP2_MEDIAN_WINDOWSIZE / 2 - 1] + values[PP2_MEDIAN_WINDOWSIZE / 2]) / 2;
+                } else {
+                    median = values[(PP2_MEDIAN_WINDOWSIZE - 1) / 2];
+                }
+                median *= PP2_MEDIAN_SCALING_FACTOR;
+
+                if (data[1][i] > median) {
+                    boolean isMaxima = true;
+                    for (int j = 0; j < PP2_LOCAL_WINDOWSIZE; j++) {
+                        int idx = j + i - PP2_LOCAL_WINDOWSIZE / 2;
+                        if (idx >= 0 && idx < data[1].length) {
+                            if (data[1][idx] > data[1][i]) {
+                                isMaxima = false;
+                            }
+                        }
+                    }
+                    if (isMaxima) {
+                        onsets.add(data[0][i]);
+                        lastOnset = i;
+                    }
+                }
+            } else {
+                double mean = 0;
+                double windowmax = Double.NEGATIVE_INFINITY;
+                int datacnt = 0;
+                for (int j = -PEAK_PICKING_MEAN_WINDOWSIZE / 2; j < PEAK_PICKING_MEAN_WINDOWSIZE / 2; j++) {
+                    int currindex = i + j;
+                    if (currindex < 0) {
+                        j = -i - 1;
+                        continue;
+                    }
+                    if (currindex >= data[0].length) {
+                        break;
+                    }
+
+                    mean += data[1][currindex];
+                    datacnt++;
+                    if (windowmax < data[1][currindex]) {
+                        windowmax = data[1][currindex];
+                    }
+                }
+                mean = mean / datacnt;
+                if (data[1][i] >= windowmax * PEAK_PICKING_MAX_WINDOWSIZE_TS) {
+                    if (data[1][i] > (mean + PEAK_PICKING_THRESHOULD * Math.max((lastOnset + PEAK_PICKING_POST_ONSET_IGNORE - i) / PEAK_PICKING_POST_ONSET_IGNORE, -PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT))) {
+                        boolean isMaxima = true;
+                        for (int j = 0; j < PEAK_PICKING_LOCAL_MAX_WINDOWSIZE; j++) {
+                            int idx = j + i - PEAK_PICKING_LOCAL_MAX_WINDOWSIZE / 2;
+                            if (idx >= 0 && idx < data[1].length)
+                                if (data[1][idx] > data[1][i]) isMaxima = false;
+                        }
+                        if (isMaxima) {
+                            onsets.add(data[0][i]);
+                            lastOnset = i;
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * plot values
+         */
+        if (PLOT) {
+            Plot2DPanel panel = new Plot2DPanel();
+            panel.addLinePlot("data", data[0], data[1]);
+
             JFrame frame = new JFrame(filename);
             frame.setContentPane(panel);
             frame.setSize(1000, 500);
