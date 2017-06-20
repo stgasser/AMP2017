@@ -64,9 +64,13 @@ public class Beta implements Processor {
     // Beat detection
     private static final int BT_TEMPO_RANGE_LOW = 60;
     private static final int BT_TEMPO_RANGE_HIGH = 200;
-    private static final int BT_LOCAL_WINDOWSIZE = 11;
-    private static final int BT_BEAT_WINDOW_FACTOR = 4;    // hoptime * factor = distance to beat in both directions
-    private static final double BT_OCTAVE_TOLERANCE = 0.1;
+    private static final int BT_LOCAL_WINDOWSIZE = 5;
+    private static final int BT_BEAT_WINDOW_FACTOR = 10;    // hoptime * factor = distance to beat in both directions
+    private static final double BT_OCTAVE_TOLERANCE = 0.30483989214210144;
+    // Beat detection search
+//    public static int BT_LOCAL_WINDOWSIZE;
+//    public static int BT_BEAT_WINDOW_FACTOR;
+//    public static double BT_OCTAVE_TOLERANCE;
 
     public static double f3;
     public static int f1, f2, f4, f5;
@@ -538,7 +542,7 @@ public class Beta implements Processor {
     }
 
     /**
-     * Beat detection => fmeasure = 54.723 %
+     * Beat detection => fmeasure = 65.191 %
      */
     private void beatDetection() {
         // calculate the range of tau values dependeing on tempo range

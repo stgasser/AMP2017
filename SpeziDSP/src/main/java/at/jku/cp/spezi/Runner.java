@@ -13,7 +13,6 @@ package at.jku.cp.spezi;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Time;
 import java.util.*;
@@ -304,55 +303,43 @@ public class Runner {
 		Random rand = new Random(System.currentTimeMillis());
 		String directory = options.valueOf("i").toString();
 		List<String> lines = new ArrayList<>();
-		lines.add("fmeasure;precision;recall;error;tp;fp;fn;f1;f2;f3;f4;f5");
+		lines.add("fmeasure;precision;recall;error;tp;fp;fn;"/*TempoRangeLow;TempoRangeHigh;*/+"LocalWindowSize;BeatWindowFactor;OctaveTolerance");
 
 		long startTimeMillis = System.currentTimeMillis();
 		Time now = new Time(startTimeMillis);
 		System.out.println("Start: " + now.toString());
 
-		double fmmax = 0.7715945287614765;
-		int 	bestf1 = 5;
-		int		bestf2 = 11;
-		int		bestf4 = 0;
-		int		bestf5 = 10;
-		double	bestf3 = 1.5350923217009074;
+		double fmmax = 0.6519142957499121;
+//		int 	bestTempoRangeLow = 60;
+//		int		bestTempoRangeHigh = 200;
+		int		bestLocalWindowSize = 5;
+		int		bestBeatWindowFactor = 10;
+		double	bestOctaveTolerance = 0.30483989214210144;
 
-		int thousands = 0;
-
-		while (tries < 100) {
+		while (tries < 7000) {
 			tries++;
-			if ((tries+1) % 100 == 0) {
+			if (tries % 100 == 0) {
 				now.setTime(System.currentTimeMillis() - startTimeMillis);
 				System.out.println(now.toString() + " #" + tries);
 			}
-			if ((tries+1) % 1000 == 0) {
-				thousands++;
-			}
 
-			//f1 = rand.nextInt(4) + 3;		// 3-6
-			//f2 = rand.nextInt(26) + 5;		// 5-30
-			//f4 = rand.nextInt(11) + 1;		// 1-11
-			//f5 = rand.nextInt(3) + 9;		// 9-11 => 512 - 2048
-			//f3 = rand.nextDouble() * 0.8 + 1.0;		// 1.0 - 1.8
+//			int deltaTempoRangeLow = rand.nextInt(3) - 1;	// -1 bis +1
+//			int deltaTempoRangeHigh = rand.nextInt(5) - 2;	// -2 bis +2
+			int deltaLocalWindowSize = rand.nextInt(7) - 3;			// -3 bis +3
+			int deltaBeatWindowFactor = rand.nextInt(3) - 1;			// -1 bis +1
+			double deltaOctaveTolerance = rand.nextDouble() * 0.5 - 0.025;	// -0.025 bis +0.025
 
-//			int deltaf1 = 0; //rand.nextInt(3) - 1;	// -1 bis +1
-//			int deltaf2 = 0; //rand.nextInt(5) - 2;	// -2 bis +2
-//			int deltaf4 = 0; //rand.nextInt(3) - 1;	// -1 bis +1
-//			int deltaf5 = 0;//rand.nextInt(3) - 1;	// -1 bis +1
-			double deltaf3 = rand.nextDouble() * 0.02 - 0.01;	// -0.01 bis +0.01 und immer bei 1000 halbieren
-			deltaf3 = deltaf3 / Math.pow(2, thousands);
+//			int tempoRangeLow = bestTempoRangeLow + deltaTempoRangeLow;
+//			int	tempoRangeHigh = bestTempoRangeHigh + deltaTempoRangeHigh;
+			int	localWindowSize = bestLocalWindowSize + deltaLocalWindowSize;
+			int	beatWindowFactor = bestBeatWindowFactor + deltaBeatWindowFactor;
+			double octaveTolerance = bestOctaveTolerance + deltaOctaveTolerance;
 
-//			int f1 = bestf1 + deltaf1,
-//				f2 = bestf2 + deltaf2,
-//				f4 = bestf4 + deltaf4,
-//				f5 = bestf5 + deltaf5;
-			double f3 = bestf3 + deltaf3;
-
-			Beta.f1 = bestf1;
-			Beta.f2 = bestf2;
-			Beta.f3 = f3;
-			Beta.f4 = bestf4;
-			Beta.f5 = (int)Math.pow(2, bestf5);
+//			Beta.BT_TEMPO_RANGE_LOW = tempoRangeLow;
+//			Beta.BT_TEMPO_RANGE_HIGH = tempoRangeHigh;
+//			Beta.BT_LOCAL_WINDOWSIZE = localWindowSize;
+//			Beta.BT_BEAT_WINDOW_FACTOR = beatWindowFactor;
+//			Beta.BT_OCTAVE_TOLERANCE = octaveTolerance;
 
 			processor = findAndInstantiateClass(processorName);
 
@@ -375,56 +362,56 @@ public class Runner {
 
 			if (options.has("s")) {
 				//System.out.println("Summarizing ...");
-				for (String type : types) {
-					Map<String, Integer> summary = new HashMap<>();
-					summary.put("tp", 0);
-					summary.put("fp", 0);
-					summary.put("fn", 0);
-					summary.put("error", 0);
+				String type = BEATS;
+				Map<String, Integer> summary = new HashMap<>();
+				summary.put("tp", 0);
+				summary.put("fp", 0);
+				summary.put("fn", 0);
+				summary.put("error", 0);
 
-					Files.walk(Paths.get(directory))
-							.filter(path -> Files.isRegularFile(path))
-							.filter(path -> path.toString().endsWith(type + EV))
-							.forEach(path -> updateSummaryForFile(summary, path.toString()));
+				Files.walk(Paths.get(directory))
+						.filter(path -> Files.isRegularFile(path))
+						.filter(path -> path.toString().endsWith(type + EV))
+						.forEach(path -> updateSummaryForFile(summary, path.toString()));
 
-					double precision = 0d;
-					double recall = 0d;
-					double fmeasure = 0d;
+				double precision = 0d;
+				double recall = 0d;
+				double fmeasure = 0d;
 
-					int tp = summary.get("tp");
-					int fp = summary.get("fp");
-					int fn = summary.get("fn");
-					double error = (double) summary.get("error") / 1e6d;
+				int tp = summary.get("tp");
+				int fp = summary.get("fp");
+				int fn = summary.get("fn");
+				double error = (double) summary.get("error") / 1e6d;
 
-					if (tp + fp > 0)
-						precision = (double) tp / (tp + fp);
+				if (tp + fp > 0)
+					precision = (double) tp / (tp + fp);
 
-					if (tp + fn > 0)
-						recall = (double) tp / (tp + fn);
+				if (tp + fn > 0)
+					recall = (double) tp / (tp + fn);
 
-					if (precision + recall > 0)
-						fmeasure = (2 * precision * recall) / (precision + recall);
-					if (type.equalsIgnoreCase(ONSETS) && fmeasure > fmmax) {
-						fmmax = fmeasure;
-						System.out.println("##################################################");
-						System.out.println("new best FMeasure: " + fmeasure);
-						System.out.println("precision: " + precision);
-						System.out.println("recall: " + recall);
-						System.out.println("error: " + error);
-						System.out.println("f:");
-						System.out.println(bestf1);
-						System.out.println(bestf2);
-						System.out.println(f3);
-						System.out.println(bestf4);
-						System.out.println(bestf5);
-						System.out.println("##################################################");
-//						bestf1 = f1;
-//						bestf2 = f2;
-						bestf3 = f3;
-//						bestf4 = f4;
-//						bestf5 = f5;
-					}
-					else if (fmeasure >= 0.995*fmmax) {
+				if (precision + recall > 0)
+					fmeasure = (2 * precision * recall) / (precision + recall);
+				if (type.equalsIgnoreCase(BEATS) && fmeasure > fmmax) {
+					fmmax = fmeasure;
+					System.out.println("##################################################");
+					System.out.println("new best FMeasure: " + fmeasure);
+					System.out.println("precision: " + precision);
+					System.out.println("recall: " + recall);
+					System.out.println("error: " + error);
+					System.out.println("parameters:");
+//						System.out.println(tempoRangeLow);
+//						System.out.println(tempoRangeHigh);
+					System.out.println(localWindowSize);
+					System.out.println(beatWindowFactor);
+					System.out.println(octaveTolerance);
+					System.out.println("##################################################");
+//						bestTempoRangeLow = tempoRangeLow;
+//						bestTempoRangeHigh = tempoRangeHigh;
+					bestLocalWindowSize = localWindowSize;
+					bestBeatWindowFactor = beatWindowFactor;
+					bestOctaveTolerance = octaveTolerance;
+				}
+//					else if (fmeasure >= 0.995*fmmax) {
 //						System.out.println("--------------------------------------------------");
 //						System.out.println("very good FMeasure: " + fmeasure);
 //						System.out.println("precision: " + precision);
@@ -437,12 +424,11 @@ public class Runner {
 //						System.out.println(f4);
 //						System.out.println(f5);
 //						System.out.println("--------------------------------------------------");
-					}
-					else {
-//						System.out.println("fmeasure: " + fmeasure);
-					}
-					lines.add(fmeasure + ";" + precision + ";" + recall + ";" + error + ";" + tp + ";" + fp + ";" + fn + ";" + bestf1 + ";" + bestf2 + ";" + f3 + ";" + bestf4 + ";" + bestf5);
+//					}
+				else {
+					//System.out.println("fmeasure: " + fmeasure);
 				}
+				lines.add(fmeasure + ";" + precision + ";" + recall + ";" + error + ";" + tp + ";" + fp + ";" + fn + ";" /*+ tempoRangeLow + ";" + tempoRangeHigh + ";"*/ + localWindowSize + ";" + beatWindowFactor + ";" + octaveTolerance);
 			}
 		}
 
