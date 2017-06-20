@@ -64,13 +64,17 @@ public class Beta implements Processor {
     // Beat detection
     private static final int BT_TEMPO_RANGE_LOW = 60;
     private static final int BT_TEMPO_RANGE_HIGH = 200;
-    private static final int BT_LOCAL_WINDOWSIZE = 5;
-    private static final int BT_BEAT_WINDOW_FACTOR = 10;    // hoptime * factor = distance to beat in both directions
-    private static final double BT_OCTAVE_TOLERANCE = 0.30483989214210144;
+    private static final int BT_LOCAL_WINDOWSIZE = 10;
+    private static final int BT_BEAT_WINDOW_FACTOR = 8;    // hoptime * factor = distance to beat in both directions
+    private static final double BT_OCTAVE_TOLERANCE = 0.40729824993564334;
+    private static final double BT_FIRST_BEAT_WINDOW = 1.7; //in seconds
+    private static final int BT_TEMPO_PULS_NR_FRAMES = 3;
     // Beat detection search
 //    public static int BT_LOCAL_WINDOWSIZE;
 //    public static int BT_BEAT_WINDOW_FACTOR;
 //    public static double BT_OCTAVE_TOLERANCE;
+//    public static double BT_FIRST_BEAT_WINDOW;
+//    public static int BT_TEMPO_PULS_NR_FRAMES;
 
     public static double f3;
     public static int f1, f2, f4, f5;
@@ -141,7 +145,7 @@ public class Beta implements Processor {
     }
 
     /**
-     * SF => fmeasure = 89.589 %
+     * SF => fmeasure = 89.59 %
      */
     private void onsetDetection1() {
         AudioFile audioFile = new AudioFile(filename, FFTSIZE, HOPSIZE);
@@ -542,9 +546,12 @@ public class Beta implements Processor {
     }
 
     /**
-     * Beat detection => fmeasure = 65.191 %
+     * Beat detection => fmeasure = 74.49 %
      */
     private void beatDetection() {
+        /**
+         * autocorrelation
+         */
         // calculate the range of tau values dependeing on tempo range
         double hopTime = HOPSIZE * sampleTime;
         int lowerBound = -1;
@@ -558,7 +565,6 @@ public class Beta implements Processor {
             }
         }
         int tauSize = upperBound - lowerBound;
-
         // calculate autocorrelation
         double[][] autocorrelation = new double[2][tauSize];
         for (int i = lowerBound; i < upperBound; i++) {
@@ -577,7 +583,9 @@ public class Beta implements Processor {
             autocorrelation[1][index] = sum;
         }
 
-        // perform peak picking
+        /**
+         * perform peak picking
+         */
         double maximum = 0;
         int maxIdx = -1;
         Map<Integer, Double> localMaxima = new HashMap<>();
@@ -605,7 +613,6 @@ public class Beta implements Processor {
             }
         }
         double tempoEstimation = autocorrelation[0][maxIdx];
-
         // pick the right local maximum
         int size = localMaxima.size();
         if (size <= 0) {
@@ -615,9 +622,10 @@ public class Beta implements Processor {
         }
         double minLocalMaximum = tempoEstimation;
         int minLocalMaxIdx = maxIdx;
+        double mean = mean(localMaxima.values());
         for (int key : localMaxima.keySet()) {
             double value = autocorrelation[0][key];
-            if (value < minLocalMaximum && isOctaveOf(value, tempoEstimation)) {
+            if (localMaxima.get(key) >= mean && value < minLocalMaximum && isOctaveOf(value, tempoEstimation)) {
                 minLocalMaximum = value;
                 minLocalMaxIdx = key;
             }
@@ -628,10 +636,63 @@ public class Beta implements Processor {
         final double beatWindow = BT_BEAT_WINDOW_FACTOR * hopTime;
         List<Double> onsets = getOnsets();
 
-        // @TODO currently we suggest, that the first onset, is also the first beat.
-        double estimatedBeatTime = onsets.get(0);
+        /**
+         * find first beat location
+         */
+        int correlationSize = (int)(BT_FIRST_BEAT_WINDOW / hopTime);
+        double pulseLength = BT_TEMPO_PULS_NR_FRAMES * hopTime;
+        byte[] tempoTrainPuls = new byte[correlationSize];
+        // create train pulse
+        tempoTrainPuls[0] = 1;
+        for (int i = 1; i < correlationSize; i++) {
+            if ((i * hopTime) % minLocalMaximum <= pulseLength) {
+                tempoTrainPuls[i] = 1;
+            } else {
+                tempoTrainPuls[i] = 0;
+            }
+        }
+        // calculate crosscorrelation between train pulse and onsetdetectionfunction for first few seconds
+        double[][] crosscorrelation = new double[2][correlationSize];
+        for (int i = 0; i < correlationSize; i++) {
+            crosscorrelation[0][i] = i * hopTime;
+
+            double sum = 0;
+            for (int j = 0; j < correlationSize; j++) {
+                if ((j+i) >= onsetDetectionFunction[1].length) {
+                    continue;
+                }
+
+                sum += (tempoTrainPuls[j] * onsetDetectionFunction[1][j+i]);
+            }
+
+            crosscorrelation[1][i] = sum;
+        }
+        if (PLOT) {
+            Plot2DPanel panel = new Plot2DPanel();
+            panel.addLinePlot("crosscorrelation", crosscorrelation[0], crosscorrelation[1]);
+            JFrame frame = new JFrame(filename + ": crosscorrelation");
+            frame.setContentPane(panel);
+            frame.setSize(1000, 500);
+            frame.setVisible(true);
+            frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        }
+        // find maximum crosscorrelation
+        double maxCc = 0;
+        double maxCcOffset = 0;
+        for (int i = 0; i < correlationSize; i++) {
+            double cc = crosscorrelation[1][i];
+            if (cc > maxCc) {
+                maxCc = cc;
+                maxCcOffset = crosscorrelation[0][i];
+            }
+        }
+        // set first beat location
+        double estimatedBeatTime = maxCcOffset;
         beats.add(estimatedBeatTime);
 
+        /**
+         * find all other beat locations
+         */
         while (estimatedBeatTime <= onsets.get(onsets.size()-1)) {
             estimatedBeatTime += beatTime;
 
@@ -669,22 +730,18 @@ public class Beta implements Processor {
             beats.add(bestBeatTime);
         }
 
-
-
-
-
         // @TODO = Tempo estimation!!!
         tempo.add(60 / tempoEstimation);
 
-/*
-        Plot2DPanel panel = new Plot2DPanel();
-        panel.addLinePlot("autocorrelation", autocorrelation[0], autocorrelation[1]);
-        JFrame frame = new JFrame(filename);
-        frame.setContentPane(panel);
-        frame.setSize(1000, 500);
-        frame.setVisible(true);
-        frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-*/
+        if (PLOT) {
+            Plot2DPanel panel = new Plot2DPanel();
+            panel.addLinePlot("autocorrelation", autocorrelation[0], autocorrelation[1]);
+            JFrame frame = new JFrame(filename + ": autocorrelation");
+            frame.setContentPane(panel);
+            frame.setSize(1000, 500);
+            frame.setVisible(true);
+            frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        }
     }
 
     /**
@@ -711,5 +768,13 @@ public class Beta implements Processor {
         } while (lower < higher);
 
         return false;
+    }
+
+    private double mean(Collection<Double> m) {
+        double sum = 0;
+        for (double d : m) {
+            sum += d;
+        }
+        return sum / m.size();
     }
 }

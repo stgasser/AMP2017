@@ -303,43 +303,43 @@ public class Runner {
 		Random rand = new Random(System.currentTimeMillis());
 		String directory = options.valueOf("i").toString();
 		List<String> lines = new ArrayList<>();
-		lines.add("fmeasure;precision;recall;error;tp;fp;fn;"/*TempoRangeLow;TempoRangeHigh;*/+"LocalWindowSize;BeatWindowFactor;OctaveTolerance");
+		lines.add("fmeasure;precision;recall;error;tp;fp;fn;LocalWindowSize;BeatWindowFactor;OctaveTolerance;FirstBeatWindow;TempoPulsNrFrames");
 
 		long startTimeMillis = System.currentTimeMillis();
 		Time now = new Time(startTimeMillis);
 		System.out.println("Start: " + now.toString());
 
-		double fmmax = 0.6519142957499121;
-//		int 	bestTempoRangeLow = 60;
-//		int		bestTempoRangeHigh = 200;
-		int		bestLocalWindowSize = 5;
-		int		bestBeatWindowFactor = 10;
-		double	bestOctaveTolerance = 0.30483989214210144;
+		double fmmax = 0.7449018853405156;
+		int	bestLocalWindowSize = 10;
+		int bestBeatWindowFactor = 8;
+		double bestOctaveTolerance = 0.40729824993564334;
+		double bestFirstBeatWindow = 1.7;
+		int bestTempoPulsNrFrames = 3;
 
-		while (tries < 7000) {
+		while (tries < 300) {
 			tries++;
-			if (tries % 100 == 0) {
+			if (tries % 10 == 0) {
 				now.setTime(System.currentTimeMillis() - startTimeMillis);
 				System.out.println(now.toString() + " #" + tries);
 			}
 
-//			int deltaTempoRangeLow = rand.nextInt(3) - 1;	// -1 bis +1
-//			int deltaTempoRangeHigh = rand.nextInt(5) - 2;	// -2 bis +2
-			int deltaLocalWindowSize = rand.nextInt(7) - 3;			// -3 bis +3
-			int deltaBeatWindowFactor = rand.nextInt(3) - 1;			// -1 bis +1
-			double deltaOctaveTolerance = rand.nextDouble() * 0.5 - 0.025;	// -0.025 bis +0.025
+			int deltaLocalWindowSize = rand.nextInt(3) - 1;			// -1 bis +1
+			int deltaBeatWindowFactor = 0; //rand.nextInt(3) - 1;			// -1 bis +1
+			double deltaOctaveTolerance = rand.nextDouble() * 0.06 - 0.03;	// -0.03 bis +0.03
+			double deltaFirstBeatWindow = (((int)(rand.nextDouble()* 2 * 10)) / 10.0) - 1.0;	// -1.0 bis +1.0
+			int deltaTempoPulsNrFrames = 3; //rand.nextInt(3) - 1;			// -1 bis +1
 
-//			int tempoRangeLow = bestTempoRangeLow + deltaTempoRangeLow;
-//			int	tempoRangeHigh = bestTempoRangeHigh + deltaTempoRangeHigh;
 			int	localWindowSize = bestLocalWindowSize + deltaLocalWindowSize;
 			int	beatWindowFactor = bestBeatWindowFactor + deltaBeatWindowFactor;
 			double octaveTolerance = bestOctaveTolerance + deltaOctaveTolerance;
+			double firstBeatWindow = bestFirstBeatWindow + deltaFirstBeatWindow;
+			int tempoPulsNrFrames = bestTempoPulsNrFrames + deltaTempoPulsNrFrames;
 
-//			Beta.BT_TEMPO_RANGE_LOW = tempoRangeLow;
-//			Beta.BT_TEMPO_RANGE_HIGH = tempoRangeHigh;
 //			Beta.BT_LOCAL_WINDOWSIZE = localWindowSize;
 //			Beta.BT_BEAT_WINDOW_FACTOR = beatWindowFactor;
 //			Beta.BT_OCTAVE_TOLERANCE = octaveTolerance;
+//			Beta.BT_FIRST_BEAT_WINDOW = firstBeatWindow;
+//			Beta.BT_TEMPO_PULS_NR_FRAMES = tempoPulsNrFrames;
 
 			processor = findAndInstantiateClass(processorName);
 
@@ -399,17 +399,17 @@ public class Runner {
 					System.out.println("recall: " + recall);
 					System.out.println("error: " + error);
 					System.out.println("parameters:");
-//						System.out.println(tempoRangeLow);
-//						System.out.println(tempoRangeHigh);
 					System.out.println(localWindowSize);
 					System.out.println(beatWindowFactor);
 					System.out.println(octaveTolerance);
+					System.out.println(firstBeatWindow);
+					System.out.println(tempoPulsNrFrames);
 					System.out.println("##################################################");
-//						bestTempoRangeLow = tempoRangeLow;
-//						bestTempoRangeHigh = tempoRangeHigh;
 					bestLocalWindowSize = localWindowSize;
 					bestBeatWindowFactor = beatWindowFactor;
 					bestOctaveTolerance = octaveTolerance;
+					bestFirstBeatWindow = firstBeatWindow;
+					bestTempoPulsNrFrames = tempoPulsNrFrames;
 				}
 //					else if (fmeasure >= 0.995*fmmax) {
 //						System.out.println("--------------------------------------------------");
@@ -428,7 +428,7 @@ public class Runner {
 				else {
 					//System.out.println("fmeasure: " + fmeasure);
 				}
-				lines.add(fmeasure + ";" + precision + ";" + recall + ";" + error + ";" + tp + ";" + fp + ";" + fn + ";" /*+ tempoRangeLow + ";" + tempoRangeHigh + ";"*/ + localWindowSize + ";" + beatWindowFactor + ";" + octaveTolerance);
+				lines.add(fmeasure + ";" + precision + ";" + recall + ";" + error + ";" + tp + ";" + fp + ";" + fn + ";" + localWindowSize + ";" + beatWindowFactor + ";" + octaveTolerance + ";" + firstBeatWindow + ";" + tempoPulsNrFrames);
 			}
 		}
 
