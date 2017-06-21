@@ -11,9 +11,10 @@
  */
 package at.jku.cp.spezi;
 
+import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.Time;
 import java.util.*;
 
 import at.jku.cp.spezi.beta.Beta;
@@ -26,7 +27,9 @@ import joptsimple.OptionSet;
  * @author rainer kelz
  */
 public class Runner {
-    public static String ONSETS = ".onsets";
+	private static final boolean MONTECARLO = false;
+
+	public static String ONSETS = ".onsets";
     public static String BEATS = ".beats";
     public static String TEMPO = ".tempo";
 
@@ -79,36 +82,112 @@ public class Runner {
             System.out.println("Defaulting to Processor 'example.TooSimple'");
             processorName = "example.TooSimple";
         }
-        int tries = 0;
-        int b_mf_tws = 4, b_mffws = 1, b_median = 0, b_avgmax = 0, b_max = 0;
-        int b_w1 = 4, b_w2 = 4, b_w3 = 19, b_w4 = 11, b_w5 = 15;
-        double b_ppts = 1.097764218995879, b_la = 47;
-        double fmmax = 0;
-        Random rand = new Random(System.currentTimeMillis());
-        while (tries < 1) {
-            tries++;
-            if (tries % 10 == 0)
-                System.out.println("#" + tries);
-            int mf_tws = b_mf_tws + rand.nextInt(3) - 1,
-                    mffws = b_mffws + rand.nextInt(3) - 1,
-                    w1 = b_w1 + rand.nextInt(5) - 2,
-                    w2 = b_w2 + rand.nextInt(5) - 2,
-                    w3 = b_w3 + rand.nextInt(5) - 2,
-                    w4 = b_w4 + rand.nextInt(5) - 2,
-                    w5 = b_w5 + rand.nextInt(5) - 2;
+
+		if (MONTECARLO) {
+			performMontecarloSearchFronz(options, processorName);
+		} else {
+			performStandardRun(options, processorName);
+		}
+	}
+
+	private static void performStandardRun(OptionSet options, String processorName) throws IOException {
+		String directory = options.valueOf("i").toString();
+		processor = findAndInstantiateClass(processorName);
+
+		if (options.has("p")) {
+			System.out.println("Predicting ...");
+			Files.walk(Paths.get(directory))
+					.filter(path -> Files.isRegularFile(path))
+					.filter(path -> path.toString().endsWith(AUDIO))
+					//.limit(1)	// TODO hack for only first file for testing
+					.forEach(path -> predictForFile(path.toString()));
+		}
+
+		if (options.has("e")) {
+			System.out.println("Evaluating ...");
+			Files.walk(Paths.get(directory))
+					.filter(path -> Files.isRegularFile(path))
+					.filter(path -> path.toString().endsWith(AUDIO))
+					.forEach(path -> evalForFile(path.toString()));
+		}
+
+		if (options.has("s")) {
+			System.out.println("Summarizing ...");
+			for (String type : types) {
+				Map<String, Integer> summary = new HashMap<>();
+				summary.put("tp", 0);
+				summary.put("fp", 0);
+				summary.put("fn", 0);
+				summary.put("error", 0);
+
+				Files.walk(Paths.get(directory))
+						.filter(path -> Files.isRegularFile(path))
+						.filter(path -> path.toString().endsWith(type + EV))
+						.forEach(path -> updateSummaryForFile(summary, path.toString()));
+
+				double precision = 0d;
+				double recall = 0d;
+				double fmeasure = 0d;
+
+				int tp = summary.get("tp");
+				int fp = summary.get("fp");
+				int fn = summary.get("fn");
+				double error = (double) summary.get("error") / 1e6d;
+
+				if (tp + fp > 0)
+					precision = (double) tp / (tp + fp);
+
+				if (tp + fn > 0)
+					recall = (double) tp / (tp + fn);
+
+				if (precision + recall > 0)
+					fmeasure = (2 * precision * recall) / (precision + recall);
+
+				String summaryfilename = directory + "/summary" + type + EV + ".txt";
+				List<String> lines = Arrays.asList(
+						"tp " + tp,
+						"fp " + fp,
+						"fn " + fn,
+						"precision " + precision,
+						"recall " + recall,
+						"fmeasure " + fmeasure,
+						"error " + error);
+				Utils.writeToFile(summaryfilename, lines);
+			}
+		}
+	}
+
+	private static void performMontecarloSearchStefan(OptionSet options, String processorName) throws IOException {
+		int tries = 0;
+		int b_mf_tws = 4, b_mffws = 1, b_median = 0, b_avgmax = 0, b_max = 0;
+		int b_w1 = 4, b_w2 = 4, b_w3 = 19, b_w4 = 11, b_w5 = 15;
+		double b_ppts = 1.097764218995879, b_la = 47;
+		double fmmax = 0;
+		Random rand = new Random(System.currentTimeMillis());
+		while (tries < 1000) {
+			tries++;
+			if (tries % 10 == 0)
+				System.out.println("#" + tries);
+			int mf_tws = b_mf_tws + rand.nextInt(3) - 1,
+					mffws = b_mffws + rand.nextInt(3) - 1,
+					w1 = b_w1 + rand.nextInt(5) - 2,
+					w2 = b_w2 + rand.nextInt(5) - 2,
+					w3 = b_w3 + rand.nextInt(5) - 2,
+					w4 = b_w4 + rand.nextInt(5) - 2,
+					w5 = b_w5 + rand.nextInt(5) - 2;
                     /*localmax = rand.nextInt(10) + 1,
                     avgmax = rand.nextInt(10) + 1,
                     median = rand.nextInt(30) + 1;*/
 
-            double la = b_la + rand.nextDouble() * 11 - 5,
-                    ppts = b_ppts + rand.nextDouble() * b_ppts - b_ppts / 2;
-            if (mf_tws < 1) mf_tws = 1;
-            if (mffws < 1) mffws = 1;
-            if (w1 < 1) w1 = 1;
-            if (w2 < 1) w2 = 1;
-            if (w3 < 1) w3 = 1;
-            if (w4 < 1) w4 = 1;
-            if (w5 < 1) w5 = 1;
+			double la = b_la + rand.nextDouble() * 11 - 5,
+					ppts = b_ppts + rand.nextDouble() * b_ppts - b_ppts / 2;
+			if (mf_tws < 1) mf_tws = 1;
+			if (mffws < 1) mffws = 1;
+			if (w1 < 1) w1 = 1;
+			if (w2 < 1) w2 = 1;
+			if (w3 < 1) w3 = 1;
+			if (w4 < 1) w4 = 1;
+			if (w5 < 1) w5 = 1;
 
             /*Beta.MAXFILTER_FREQ_WINDOWSIZE = mffws;
             Beta.MAXFILTER_TIME_WINDOWSIZE = mf_tws;
@@ -123,102 +202,241 @@ public class Runner {
             //Beta.PEAK_PICKING_AVG_MAX = avgmax;
             //Beta.PEAK_PICKING_LOCAL_MAX = localmax;
             */
-            String directory = options.valueOf("i").toString();
-            processor = findAndInstantiateClass(processorName);
+			String directory = options.valueOf("i").toString();
+			processor = findAndInstantiateClass(processorName);
 
-            if (options.has("p")) {
-                //System.out.println("Predicting ...");
-                Files.walk(Paths.get(directory))
-                        .filter(path -> Files.isRegularFile(path))
-                        .filter(path -> path.toString().endsWith(AUDIO))
-                        //.limit(1)	// TODO hack for only first file for testing
-                        .forEach(path -> predictForFile(path.toString()));
-            }
+			if (options.has("p")) {
+				//System.out.println("Predicting ...");
+				Files.walk(Paths.get(directory))
+						.filter(path -> Files.isRegularFile(path))
+						.filter(path -> path.toString().endsWith(AUDIO))
+						//.limit(1)	// TODO hack for only first file for testing
+						.forEach(path -> predictForFile(path.toString()));
+			}
 
-            if (options.has("e")) {
-                //System.out.println("Evaluating ...");
-                Files.walk(Paths.get(directory))
-                        .filter(path -> Files.isRegularFile(path))
-                        .filter(path -> path.toString().endsWith(AUDIO))
-                        .forEach(path -> evalForFile(path.toString()));
-            }
+			if (options.has("e")) {
+				//System.out.println("Evaluating ...");
+				Files.walk(Paths.get(directory))
+						.filter(path -> Files.isRegularFile(path))
+						.filter(path -> path.toString().endsWith(AUDIO))
+						.forEach(path -> evalForFile(path.toString()));
+			}
 
-            if (options.has("s")) {
-                //System.out.println("Summarizing ...");
-                for (String type : types) {
-                    Map<String, Integer> summary = new HashMap<>();
-                    summary.put("tp", 0);
-                    summary.put("fp", 0);
-                    summary.put("fn", 0);
-                    summary.put("error", 0);
+			if (options.has("s")) {
+				//System.out.println("Summarizing ...");
+				for (String type : types) {
+					Map<String, Integer> summary = new HashMap<>();
+					summary.put("tp", 0);
+					summary.put("fp", 0);
+					summary.put("fn", 0);
+					summary.put("error", 0);
 
-                    Files.walk(Paths.get(directory))
-                            .filter(path -> Files.isRegularFile(path))
-                            .filter(path -> path.toString().endsWith(type + EV))
-                            .forEach(path -> updateSummaryForFile(summary, path.toString()));
+					Files.walk(Paths.get(directory))
+							.filter(path -> Files.isRegularFile(path))
+							.filter(path -> path.toString().endsWith(type + EV))
+							.forEach(path -> updateSummaryForFile(summary, path.toString()));
 
-                    double precision = 0d;
-                    double recall = 0d;
-                    double fmeasure = 0d;
+					double precision = 0d;
+					double recall = 0d;
+					double fmeasure = 0d;
 
-                    int tp = summary.get("tp");
-                    int fp = summary.get("fp");
-                    int fn = summary.get("fn");
-                    double error = (double) summary.get("error") / 1e6d;
+					int tp = summary.get("tp");
+					int fp = summary.get("fp");
+					int fn = summary.get("fn");
+					double error = (double) summary.get("error") / 1e6d;
 
-                    if (tp + fp > 0)
-                        precision = (double) tp / (tp + fp);
+					if (tp + fp > 0)
+						precision = (double) tp / (tp + fp);
 
-                    if (tp + fn > 0)
-                        recall = (double) tp / (tp + fn);
+					if (tp + fn > 0)
+						recall = (double) tp / (tp + fn);
 
-                    if (precision + recall > 0)
-                        fmeasure = (2 * precision * recall) / (precision + recall);
-                    if (type.equalsIgnoreCase(ONSETS) && fmeasure > fmmax) {
-                        fmmax = fmeasure;
-                        b_mf_tws = mf_tws;
-                        b_mffws = mffws;
-                        b_la = la;
-                        //b_avgmax = avgmax;
-                        //b_max = localmax;
-                        b_ppts = ppts;
-                        b_w1 = w1;
-                        b_w2 = w2;
-                        b_w3 = w3;
-                        b_w4 = w4;
-                        b_w5 = w5;
-                        //b_median = median;
-                        System.out.println("new best FMeasure: " + fmeasure);
-                        System.out.println(b_mf_tws);
-                        System.out.println(b_mffws);
-                        System.out.println(b_la);
-                        System.out.println(b_ppts);
-                        System.out.println(w1);
-                        System.out.println(w2);
-                        System.out.println(w3);
-                        System.out.println(w4);
-                        System.out.println(w5);
+					if (precision + recall > 0)
+						fmeasure = (2 * precision * recall) / (precision + recall);
+					if (type.equalsIgnoreCase(ONSETS) && fmeasure > fmmax) {
+						fmmax = fmeasure;
+						b_mf_tws = mf_tws;
+						b_mffws = mffws;
+						b_la = la;
+						//b_avgmax = avgmax;
+						//b_max = localmax;
+						b_ppts = ppts;
+						b_w1 = w1;
+						b_w2 = w2;
+						b_w3 = w3;
+						b_w4 = w4;
+						b_w5 = w5;
+						//b_median = median;
+						System.out.println("new best FMeasure: " + fmeasure);
+						System.out.println(b_mf_tws);
+						System.out.println(b_mffws);
+						System.out.println(b_la);
+						System.out.println(b_ppts);
+						System.out.println(w1);
+						System.out.println(w2);
+						System.out.println(w3);
+						System.out.println(w4);
+						System.out.println(w5);
                         /*System.out.println(b_max);
                         System.out.println(b_avgmax);
                         System.out.println(b_median);*/
-                    }
-                    //System.out.println(fmeasure);
-                    String summaryfilename = directory + "/summary" + type + EV + ".txt";
-                    List<String> lines = Arrays.asList(
-                            "tp " + tp,
-                            "fp " + fp,
-                            "fn " + fn,
-                            "precision " + precision,
-                            "recall " + recall,
-                            "fmeasure " + fmeasure,
-                            "error " + error);
-                    System.out.println(summaryfilename);
-                    lines.forEach(System.out::println);
-                    //Utils.writeToFile(summaryfilename, lines);
-                }
-            }
-        }
-    }
+					}
+					//System.out.println(fmeasure);
+					String summaryfilename = directory + "/summary" + type + EV + ".txt";
+					List<String> lines = Arrays.asList(
+							"tp " + tp,
+							"fp " + fp,
+							"fn " + fn,
+							"precision " + precision,
+							"recall " + recall,
+							"fmeasure " + fmeasure,
+							"error " + error);
+					//lines.forEach(System.out::println);
+					//Utils.writeToFile(summaryfilename, lines);
+				}
+			}
+		}
+	}
+
+	private static void performMontecarloSearchFronz(OptionSet options, String processorName) throws IOException {
+		int tries = 0;
+		Random rand = new Random(System.currentTimeMillis());
+		String directory = options.valueOf("i").toString();
+		List<String> lines = new ArrayList<>();
+		lines.add("fmeasure;precision;recall;error;tp;fp;fn;LocalWindowSize;BeatWindowFactor;OctaveTolerance;FirstBeatWindow;TempoPulsNrFrames");
+
+		long startTimeMillis = System.currentTimeMillis();
+		Time now = new Time(startTimeMillis);
+		System.out.println("Start: " + now.toString());
+
+		double fmmax = 0.7449018853405156;
+		int	bestLocalWindowSize = 10;
+		int bestBeatWindowFactor = 8;
+		double bestOctaveTolerance = 0.40729824993564334;
+		double bestFirstBeatWindow = 1.7;
+		int bestTempoPulsNrFrames = 3;
+
+		while (tries < 300) {
+			tries++;
+			if (tries % 10 == 0) {
+				now.setTime(System.currentTimeMillis() - startTimeMillis);
+				System.out.println(now.toString() + " #" + tries);
+			}
+
+			int deltaLocalWindowSize = rand.nextInt(3) - 1;			// -1 bis +1
+			int deltaBeatWindowFactor = 0; //rand.nextInt(3) - 1;			// -1 bis +1
+			double deltaOctaveTolerance = rand.nextDouble() * 0.06 - 0.03;	// -0.03 bis +0.03
+			double deltaFirstBeatWindow = (((int)(rand.nextDouble()* 2 * 10)) / 10.0) - 1.0;	// -1.0 bis +1.0
+			int deltaTempoPulsNrFrames = 3; //rand.nextInt(3) - 1;			// -1 bis +1
+
+			int	localWindowSize = bestLocalWindowSize + deltaLocalWindowSize;
+			int	beatWindowFactor = bestBeatWindowFactor + deltaBeatWindowFactor;
+			double octaveTolerance = bestOctaveTolerance + deltaOctaveTolerance;
+			double firstBeatWindow = bestFirstBeatWindow + deltaFirstBeatWindow;
+			int tempoPulsNrFrames = bestTempoPulsNrFrames + deltaTempoPulsNrFrames;
+
+//			Beta.BT_LOCAL_WINDOWSIZE = localWindowSize;
+//			Beta.BT_BEAT_WINDOW_FACTOR = beatWindowFactor;
+//			Beta.BT_OCTAVE_TOLERANCE = octaveTolerance;
+//			Beta.BT_FIRST_BEAT_WINDOW = firstBeatWindow;
+//			Beta.BT_TEMPO_PULS_NR_FRAMES = tempoPulsNrFrames;
+
+			processor = findAndInstantiateClass(processorName);
+
+			if (options.has("p")) {
+				//System.out.println("Predicting ...");
+				Files.walk(Paths.get(directory))
+						.filter(path -> Files.isRegularFile(path))
+						.filter(path -> path.toString().endsWith(AUDIO))
+						//.limit(1)	// TODO hack for only first file for testing
+						.forEach(path -> predictForFile(path.toString()));
+			}
+
+			if (options.has("e")) {
+				//System.out.println("Evaluating ...");
+				Files.walk(Paths.get(directory))
+						.filter(path -> Files.isRegularFile(path))
+						.filter(path -> path.toString().endsWith(AUDIO))
+						.forEach(path -> evalForFile(path.toString()));
+			}
+
+			if (options.has("s")) {
+				//System.out.println("Summarizing ...");
+				String type = BEATS;
+				Map<String, Integer> summary = new HashMap<>();
+				summary.put("tp", 0);
+				summary.put("fp", 0);
+				summary.put("fn", 0);
+				summary.put("error", 0);
+
+				Files.walk(Paths.get(directory))
+						.filter(path -> Files.isRegularFile(path))
+						.filter(path -> path.toString().endsWith(type + EV))
+						.forEach(path -> updateSummaryForFile(summary, path.toString()));
+
+				double precision = 0d;
+				double recall = 0d;
+				double fmeasure = 0d;
+
+				int tp = summary.get("tp");
+				int fp = summary.get("fp");
+				int fn = summary.get("fn");
+				double error = (double) summary.get("error") / 1e6d;
+
+				if (tp + fp > 0)
+					precision = (double) tp / (tp + fp);
+
+				if (tp + fn > 0)
+					recall = (double) tp / (tp + fn);
+
+				if (precision + recall > 0)
+					fmeasure = (2 * precision * recall) / (precision + recall);
+				if (type.equalsIgnoreCase(BEATS) && fmeasure > fmmax) {
+					fmmax = fmeasure;
+					System.out.println("##################################################");
+					System.out.println("new best FMeasure: " + fmeasure);
+					System.out.println("precision: " + precision);
+					System.out.println("recall: " + recall);
+					System.out.println("error: " + error);
+					System.out.println("parameters:");
+					System.out.println(localWindowSize);
+					System.out.println(beatWindowFactor);
+					System.out.println(octaveTolerance);
+					System.out.println(firstBeatWindow);
+					System.out.println(tempoPulsNrFrames);
+					System.out.println("##################################################");
+					bestLocalWindowSize = localWindowSize;
+					bestBeatWindowFactor = beatWindowFactor;
+					bestOctaveTolerance = octaveTolerance;
+					bestFirstBeatWindow = firstBeatWindow;
+					bestTempoPulsNrFrames = tempoPulsNrFrames;
+				}
+//					else if (fmeasure >= 0.995*fmmax) {
+//						System.out.println("--------------------------------------------------");
+//						System.out.println("very good FMeasure: " + fmeasure);
+//						System.out.println("precision: " + precision);
+//						System.out.println("recall: " + recall);
+//						System.out.println("error: " + error);
+//						System.out.println("f:");
+//						System.out.println(f1);
+//						System.out.println(f2);
+//						System.out.println(f3);
+//						System.out.println(f4);
+//						System.out.println(f5);
+//						System.out.println("--------------------------------------------------");
+//					}
+				else {
+					//System.out.println("fmeasure: " + fmeasure);
+				}
+				lines.add(fmeasure + ";" + precision + ";" + recall + ";" + error + ";" + tp + ";" + fp + ";" + fn + ";" + localWindowSize + ";" + beatWindowFactor + ";" + octaveTolerance + ";" + firstBeatWindow + ";" + tempoPulsNrFrames);
+			}
+		}
+
+		now.setTime(System.currentTimeMillis());
+		System.out.println("Ende: " + now.toString());
+
+		Utils.writeToFile(directory + "\\montecarlo.csv", lines);
+	}
 
     private static Processor findAndInstantiateClass(String processorName) {
         String fullyQualifiedName = "at.jku.cp.spezi." + processorName;
