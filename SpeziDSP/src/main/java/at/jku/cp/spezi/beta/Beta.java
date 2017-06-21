@@ -111,7 +111,6 @@ public class Beta implements Processor {
         onsets1 = new ArrayList<Double>();
         onsets2 = new ArrayList<Double>();
         beats = new ArrayList<Double>();
-        tempo = new ArrayList<Double>();
         this.filename = filename;
 
         if (PLOT) {
@@ -732,9 +731,6 @@ public class Beta implements Processor {
 
             beats.add(bestBeatTime);
         }
-
-        // @TODO = Tempo estimation!!!
-        tempo.add(60 / tempoEstimation);
 
         if (PLOT) {
             Plot2DPanel panel = new Plot2DPanel();
