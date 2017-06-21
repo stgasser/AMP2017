@@ -41,7 +41,7 @@ public class Beta implements Processor {
     public static int PEAK_PICKING_AVG_MAX = 30;
 
 
-    /*public static double PEAK_PICKING_THRESHOULD = 0.3;  //0.3
+    public static double PEAK_PICKING_THRESHOULD = 0.3;  //0.3
     public static double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT = 0.5; // 0.5
     public static int PEAK_PICKING_MEAN_WINDOWSIZE = 7;  //7
     public static int PEAK_PICKING_MAX_WINDOWSIZE = 5;   //4
@@ -52,7 +52,7 @@ public class Beta implements Processor {
     private static final double PEAK_PICKING_THRESHOULD_REL = 1.3; //0.3
     private static final double PEAK_PICKING_THRESHOULD_NEG_DECAY_LIMIT_REL = -0.7; // 0.5
     private static final int PEAK_PICKING_POST_ONSET_IGNORE_REL = 11;//7
-       */
+
     private static final int PP2_MEDIAN_WINDOWSIZE = 11;
     private static final double PP2_MEDIAN_SCALING_FACTOR = 1.12;
     private static final int PP2_LOCAL_WINDOWSIZE = 4;
@@ -76,6 +76,8 @@ public class Beta implements Processor {
      */
     private List<Double> beats;
 
+    private double tempo = 0.0;
+
     public Beta() {
     }
 
@@ -98,8 +100,8 @@ public class Beta implements Processor {
         //System.out.println("Running Analysis...");
         //onsetDetection();
         onsetDetection1();
-        onsetDetection2();
-        System.out.println(onsets.size());
+        //onsetDetection2();
+        //System.out.println(onsets.size());
         beatDetection();
         tempoEstimation();
     }
@@ -114,7 +116,8 @@ public class Beta implements Processor {
 
     public List<Double> getTempo() {
         List<Double> tempo = new ArrayList<>();
-        tempo.add(150d);
+        //System.out.println(this.tempo);
+        tempo.add(this.tempo);
         return tempo;
     }
 
@@ -188,7 +191,7 @@ public class Beta implements Processor {
                 .map(frame -> {
                     double[] vals = new double[frame.magnitudes.length];
                     for (int i = 0; i < vals.length; i++) {
-                        vals[i] = frame.magnitudes[i] ;//* Math.cos(frame.phases[i]);
+                        vals[i] = frame.magnitudes[i];//* Math.cos(frame.phases[i]);
                         //vals[1][i] = frame.magnitudes[i] * Math.sin(frame.phases[i]);
                     }
                     return vals;
@@ -571,9 +574,191 @@ public class Beta implements Processor {
      */
     private void tempoEstimation() {
         //System.out.println("Starting Tempo Estimation (NOT IMPLEMENTED!) ...");
+        int FFTSIZE = 512, HOPSIZE = 512;
+        AudioFile audioFile = new AudioFile(filename, FFTSIZE, HOPSIZE);
+
+        double sampleTime = 1d / audioFile.getSampleRate();
+
+        List<Frame> frames = audioFile.getFrames();
+        SpectralTransformator.sampleRate = audioFile.getSampleRate();
+        SpectralTransformator.fftSize = FFTSIZE;
+        SpectralTransformator.l = lambda;
+        List<double[]> magdiff = new ArrayList<>(frames.size());
+        List<double[]> mel = frames.stream()
+                .map(frame -> {
+                    double[] vals = new double[frame.magnitudes.length];
+                    for (int i = 0; i < vals.length; i++) {
+                        vals[i] = frame.magnitudes[i];
+                    }
+                    return vals;
+                })
+                .map(SpectralTransformator::toMel)
+                .collect(Collectors.toList());
+        /*double[] first = new double[mel.get(0).length];
+        for (int i = 0; i < first.length; i++) {
+            first[i] = mel.get(0)[i] / 4.0;
+        }
+        magdiff.add(first);
+        for (int i = 0; i < mel.size() - 1; i++) {
+            double[] tmp = new double[mel.get(i).length];
+            for (int j = 0; j < tmp.length; j++) {
+                tmp[j] = mel.get(i + 1)[j] - (mel.get(i)[j] - magdiff.get(i)[j]);
+            }
+            magdiff.add(tmp);
+        }*/
+        magdiff = mel;
+        // Max Filtering
+        double[][] spec = new double[magdiff.size()][magdiff.get(0).length];
+        for (int i = 0; i < magdiff.size(); i++) {                         //i = Current Time Slot
+            for (int j = 0; j < magdiff.get(0).length; j++) {              //j = Current Freq Slot
+                double max = Double.NEGATIVE_INFINITY;
+                for (int k = 0; k < MAXFILTER_TIME_WINDOWSIZE; k++) {
+                    for (int l = 0; l < MAXFILTER_FREQ_WINDOWSIZE; l++) {
+                        int currTimeIdx = i + k - (MAXFILTER_TIME_WINDOWSIZE) / 2;
+                        int currFreqIdx = j + l - (MAXFILTER_FREQ_WINDOWSIZE) / 2;
+                        if (currTimeIdx >= 0 && currTimeIdx < magdiff.size() && currFreqIdx >= 0 && currFreqIdx < magdiff.get(currTimeIdx).length) {
+                            double currVal = magdiff.get(currTimeIdx)[currFreqIdx];
+                            if (currVal > max) max = currVal;
+                        }
+                    }
+                }
+                if (Double.isInfinite(max))
+                    System.out.println();
+                spec[i][j] = max;//magdiff.get(i)[j];
+            }
+        }
+
+        List<double[]> magdiff2 = new ArrayList<>(spec.length);
+        magdiff2.add(spec[0]);
+        for (int i = 0; i < spec.length - 1; i++) {
+            double[] tmp = new double[spec[0].length];
+            for (int j = 0; j < tmp.length; j++) {
+                tmp[j] = H(spec[i + 1][j] - spec[i][j]);
+                //tmp[j] = Math.sqrt(Math.abs(tmp[j] * tmp[j] - spec[i + 1][j] * spec[i + 1][j]));
+            }
+            magdiff2.add(tmp);
+        }
+
+
+        List<Double> myList = magdiff2.stream()
+                .map((doubles -> {
+                    double sum = 0;
+                    for (int i = 0; i < doubles.length; i++) {
+                        sum += doubles[i];
+                    }
+                    return Math.abs(sum);
+                })).collect(Collectors.toList());
+        //-------------- Same as Onset Detection  till here--------------------
+
+
+        double[] data = new double[myList.size()];
+        for (int i = 0; i < data.length; i++) {
+            data[i] = myList.get(i);
+        }
+        double[] datamed = new double[data.length];
+        final int medwinsz = 20;
+        final double medamp = 1.5;
+        for (int i = 0; i < data.length; i++) {
+            double[] tmp = Arrays.copyOfRange(data, i - medwinsz < 0 ? 0 : i - medwinsz, i + medwinsz > data.length - 1 ? data.length - 1 : i + medwinsz);
+            Arrays.sort(tmp);
+            datamed[i] = H(data[i] - medamp * (tmp.length % 2 == 0 ? (tmp[tmp.length / 2] + tmp[tmp.length / 2 - 1]) / 2 : tmp[tmp.length / 2]));
+        }
+        data = datamed;
+        int maxbeat = Math.round(((60.0f / 35.0f) * audioFile.getSampleRate()) / HOPSIZE);
+        int minbeat = Math.round((60.0f / 240.0f) * audioFile.getSampleRate() / HOPSIZE);
+        double[] acf = new double[maxbeat - minbeat];
+        double[] offsets = new double[acf.length];
+        for (int i = minbeat; i < maxbeat; i++) {
+            int j = i - minbeat;
+            acf[j] = autcorrelate(data, i);
+            offsets[j] = i * sampleTime * HOPSIZE;
+        }
+
+        acf = weightedacf(acf, minbeat, maxbeat);
+        double[] nacf = new double[acf.length - 1];
+        for (int i = 1; i < acf.length; i++) {
+            //nacf[i - 1] = Math.abs(acf[i] - acf[i - 1]);
+        }
+        //acf = nacf;
+        int maxidx = 0;
+        for (int i = 0; i < acf.length; i++) {
+            if (acf[maxidx] < acf[i]) {
+                maxidx = i;
+            }
+        }
+        int maxidxd2 = (maxidx + minbeat) / 2 - minbeat;
+        int maxidxm2 = (maxidx + minbeat) * 2 - minbeat;
+        int maxidxm3 = (maxidx + minbeat) * 3 - minbeat;
+        int maxidxm4 = (maxidx + minbeat) * 4 - minbeat;
+        System.out.println("--------------------" + filename);
+        System.out.println(acf[maxidx]);
+        if (maxidxd2 >= 0)
+            System.out.println("/2 " + acf[maxidxd2]);
+        if (maxidxm2 + minbeat < maxbeat)
+            System.out.println("*2 " + acf[maxidxm2]);
+        if (maxidxm3 + minbeat < maxbeat)
+            System.out.println("*3 " + acf[maxidxm3]);
+        if (maxidxm4 + minbeat < maxbeat)
+            System.out.println("*4 " + acf[maxidxm4]);
+        if (maxidxm2 + minbeat < maxbeat && maxidxm3 + minbeat < maxbeat){
+            if (acf[maxidxm2] * 0.89 < acf[maxidxm3])
+                maxidx = maxidxm3;
+        }
+        this.tempo = 1 / offsets[maxidx] * 60;
+        if (PLOT) {
+            Plot2DPanel panel = new Plot2DPanel();
+            panel.addLinePlot("data", offsets, acf);
+            //panel.addLinePlot("data", data);
+            //panel.addLinePlot("data",data[0],newvals);
+            JFrame frame = new JFrame(filename);
+            frame.setContentPane(panel);
+            frame.setSize(1000, 500);
+            frame.setVisible(true);
+            frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        }
+
+    }
+
+    private double[] weightedacf(double[] acf, int minframesperbeat, int maxframesperbeat) {
+        double[] ret = new double[acf.length];
+
+        for (int i = 0; i < acf.length; i++) {
+            ret[i] = 0;
+            int currper = minframesperbeat + i;
+            /*double period = 2 * Math.PI / (currper);
+            for (int j = i; j < acf.length; j++) {
+                int framecnt = j + minframesperbeat;
+                ret[i] += acf[j] * Math.cos(period * framecnt) * gauss(framecnt, i + minframesperbeat, (maxframesperbeat - minframesperbeat) / 2);
+            }
+            //ret[i]/= acf.length-i;
+            */
+            int cnt = 1;
+            for (int j = currper; j < acf.length + minframesperbeat; j += currper) {
+                ret[i] += acf[j - minframesperbeat] / (cnt * cnt);
+                cnt++;
+            }
+            //ret[i] /= (cnt);
+        }
+        return ret;
+    }
+
+    private double autcorrelate(double[] data, int offset) {
+        double sum = 0;
+        for (int i = 0; i < data.length - offset; i++) {
+            sum += data[i + offset] * data[i];//Math.sqrt(H(data[i + offset]*data[i + offset] - data[i]*data[i]));
+        }
+        return sum;
+    }
+
+    private double gauss(double x, double mu, double sigma) {
+        return gauss((x - mu) / sigma) / sigma;
+    }
+
+    private double gauss(double x) {
+        return Math.exp(-(x * x) / 2) / Math.sqrt(2 * Math.PI);
     }
 
     private double H(double d) {
-        return (d + Math.abs(d)) / 2.0;
+        return d < 0 ? 0 : d;
     }
 }

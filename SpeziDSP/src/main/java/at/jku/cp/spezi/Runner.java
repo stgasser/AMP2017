@@ -30,7 +30,7 @@ public class Runner {
     public static String BEATS = ".beats";
     public static String TEMPO = ".tempo";
 
-    private static String[] types = {ONSETS};//, BEATS, TEMPO};
+    private static String[] types = {ONSETS, BEATS, TEMPO};
     private static double[] tolerances = {0.05d, 0.07d, 4d};
 
     private static String AUDIO = ".wav";
@@ -85,7 +85,7 @@ public class Runner {
         double b_ppts = 1.097764218995879, b_la = 47;
         double fmmax = 0;
         Random rand = new Random(System.currentTimeMillis());
-        while (tries < 1000) {
+        while (tries < 1) {
             tries++;
             if (tries % 10 == 0)
                 System.out.println("#" + tries);
@@ -110,7 +110,7 @@ public class Runner {
             if (w4 < 1) w4 = 1;
             if (w5 < 1) w5 = 1;
 
-            Beta.MAXFILTER_FREQ_WINDOWSIZE = mffws;
+            /*Beta.MAXFILTER_FREQ_WINDOWSIZE = mffws;
             Beta.MAXFILTER_TIME_WINDOWSIZE = mf_tws;
             Beta.lambda = la;
             Beta.w1 = w1;
@@ -122,7 +122,7 @@ public class Runner {
             Beta.PPTS = ppts;
             //Beta.PEAK_PICKING_AVG_MAX = avgmax;
             //Beta.PEAK_PICKING_LOCAL_MAX = localmax;
-
+            */
             String directory = options.valueOf("i").toString();
             processor = findAndInstantiateClass(processorName);
 
@@ -212,7 +212,8 @@ public class Runner {
                             "recall " + recall,
                             "fmeasure " + fmeasure,
                             "error " + error);
-                    //lines.forEach(System.out::println);
+                    System.out.println(summaryfilename);
+                    lines.forEach(System.out::println);
                     //Utils.writeToFile(summaryfilename, lines);
                 }
             }
@@ -254,10 +255,10 @@ public class Runner {
         Utils.writeDataToFile(onsets, processor.getOnsets());
 
         //System.out.println("Outputting Beat Times to " + beats);
-        //Utils.writeDataToFile(beats, processor.getBeats());
+        Utils.writeDataToFile(beats, processor.getBeats());
 
         //System.out.println("Outputting Tempo to " + tempo);
-        //Utils.writeDataToFile(tempo, processor.getTempo());
+        Utils.writeDataToFile(tempo, processor.getTempo());
     }
 
     private static void evalForFile(String filename) {
@@ -299,6 +300,10 @@ public class Runner {
             if (eventGT.size() != 1)
                 throw new RuntimeException("weird tempo file ?!");
             double realTempo = eventGT.get(0);
+            System.out.println('\t'+predictions);
+            System.out.println("real Tempo = "+realTempo);
+            System.out.println("my Tempo   = "+eventPR.get(0));
+            System.out.println("perc error = "+realTempo/eventPR.get(0));
             tolerance = (realTempo / 100d) * tolerance;
         }
 

@@ -1,5 +1,7 @@
 package at.jku.cp.spezi.beta;
 
+import java.util.DoubleSummaryStatistics;
+
 /**
  * Created by Stefan on 31.05.2017.
  */
@@ -23,7 +25,7 @@ public class SpectralTransformator {
         centerFreqs[numBands + 1] = MaxFreq;
 
         for (int i = 0; i < numBands; i++) {
-            centerFreqs[i + 1] = Math.round((float) ((Math.exp((melMaxFreq - melMinFreq) / numBands * i / 2959) - 1) * 700)*fftSize/sampleRate);
+            centerFreqs[i + 1] = Math.round((float) ((Math.exp((melMaxFreq - melMinFreq) / numBands * i / 2959) - 1) * 700) * fftSize / sampleRate);
         }
 
         for (int bandIdx = 1; bandIdx < numBands; bandIdx++) {
@@ -37,14 +39,16 @@ public class SpectralTransformator {
                 bandData[bandIdx] += fftData[i] * height * (i - startFreqIdx) / magnitudeScale;
             }
 
-            for (int i = centerFreqIdx; i <= stopFreqIdx; i++) {
-                magnitudeScale = centerFreqIdx - stopFreqIdx;
-                bandData[bandIdx] += fftData[i] * height * (i - stopFreqIdx) / magnitudeScale;
+            for (int i = centerFreqIdx; i < stopFreqIdx; i++) {
+                magnitudeScale = stopFreqIdx - centerFreqIdx;
+                bandData[bandIdx] += fftData[i] * height * (stopFreqIdx - i) / magnitudeScale;
             }
         }
         //double l = 1.0;
         for (int i = 0; i < bandData.length; i++) {
             bandData[i] = Math.log(1 + l * bandData[i]);
+            if (Double.isNaN(bandData[i]))
+                System.out.println();
         }
 
         return bandData;
